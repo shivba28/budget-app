@@ -1,0 +1,190 @@
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Inner scroll surface (like Insights .summary-scroll) so tab content clears the glass dock. */
+.settings-scroll-root.page.page--fill:not(.tx-page) {
+  overflow: hidden;
+  padding-bottom: 0;
+  background: var(--background);
+}
+
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0));
+  background: var(--background);
+}
+
+.settings-view-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.settings-view-head .page__title {
+  margin-bottom: 0;
+}
+
+.settings-tabs {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.settings-tab {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.settings-tab:hover {
+  background: var(--surface-muted);
+}
+
+.settings-tab--active {
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  color: var(--text-h);
+}
+
+.settings-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-bank-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min(55vh, 28rem);
+}
+
+.settings-bank-panel > .page__subtitle {
+  flex-shrink: 0;
+}
+
+.settings-bank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-bank-card {
+  position: relative;
+}
+
+.settings-bank-card__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settings-bank-card__row--header {
+  align-items: flex-start;
+}
+
+.settings-bank-card__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-bank-card__actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.settings-account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-account-include {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.35rem 0 0.15rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-account-include__input {
+  margin-top: 0.2rem;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  accent-color: var(--accent-primary, #2563eb);
+  cursor: pointer;
+}
+
+.settings-account-include__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.settings-bank-card__divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.85rem 0;
+}
+
+.settings-bank-tab__cta {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+}
+
+.settings-bank-tab__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.5rem;
+  min-height: 12rem;
+}
+
+.settings-bank-tab__cta--solo {
+  margin-top: 0;
+  padding-top: 0;
+  justify-content: center;
+}
+
+.settings-connect-cta {
+  margin-top: 0.75rem;
+  max-width: 16rem;
+}

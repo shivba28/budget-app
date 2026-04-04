@@ -1,0 +1,30 @@
+.app-shell {
+  min-height: 100svh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  position: relative;
+  /* Same surface as pages so nothing behind the shell clashes with the nav blur */
+  background: var(--background);
+}
+
+.app-main {
+  position: relative;
+  z-index: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background);
+  /* No padding-bottom: content must extend under the dock so backdrop-filter sees it */
+}
+
+/* Nav sits above .app-main; blur samples scrolled pixels in the column */
+.app-nav-dock {
+  pointer-events: none;
+}

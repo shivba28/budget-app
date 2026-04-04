@@ -1,0 +1,103 @@
+.insights-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+}
+
+.insights-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.insights-card-stack--tight {
+  gap: 1.5rem;
+}
+
+.insights-inner-heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-h, var(--foreground));
+  letter-spacing: -0.01em;
+}
+
+.insights-stats-block {
+  margin-top: 0.25rem;
+}
+
+.insights-top-merchants {
+  margin-top: 0.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.insights-largest-block {
+  margin-top: 0.25rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.insights-budget-by-cat {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.insights-cat-swatch {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.insights-dashboard .insights-card--alert {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--destructive) 45%, transparent),
+    var(--shadow-xs, 0 1px 2px rgb(0 0 0 / 0.06));
+}
+
+.insights-warning-item {
+  border-color: color-mix(in oklab, var(--destructive) 35%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 6%, var(--card));
+}
+
+.insights-verdict__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.insights-verdict--ok .insights-verdict__dot {
+  background: var(--color-emerald-500, #22c55e);
+}
+
+.insights-verdict--warn .insights-verdict__dot {
+  background: var(--color-amber-500, #f59e0b);
+}
+
+.insights-verdict--bad .insights-verdict__dot {
+  background: var(--destructive);
+}
+
+.insights-verdict--ok {
+  background: color-mix(in oklab, #22c55e 14%, var(--muted));
+  color: var(--foreground);
+}
+
+.insights-verdict--warn {
+  background: color-mix(in oklab, #f59e0b 18%, var(--muted));
+  color: var(--foreground);
+}
+
+.insights-verdict--bad {
+  background: color-mix(in oklab, var(--destructive) 16%, var(--muted));
+  color: var(--foreground);
+}
+
+/* Extra air inside multi-part cards */
+.insights-dashboard [data-slot='card-header'] {
+  padding-bottom: 0.5rem;
+}
+
+.insights-dashboard [data-slot='card-content']:where(.insights-card-stack--tight) {
+  padding-top: 0.25rem;
+}

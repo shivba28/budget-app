@@ -1,0 +1,47 @@
+# Render Blueprint — deploy the unified API only. Frontend goes to Vercel separately.
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: budget-app-api
+    runtime: node
+    rootDir: api
+    buildCommand: npm install && npm run build
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
+      - key: WEBAUTHN_RP_ID
+        sync: false
+      - key: WEBAUTHN_RP_NAME
+        value: Budget Tracker
+      - key: WEBAUTHN_ORIGIN
+        sync: false
+      - key: TELLER_ENV
+        value: sandbox
+      - key: TELLER_APP_ID
+        sync: false
+      - key: TELLER_CERT_PATH
+        sync: false
+      - key: TELLER_KEY_PATH
+        sync: false
+      - key: TELLER_PROXY_PORT
+        value: "3001"
+      - key: TELLER_PROXY_HOST
+        value: "127.0.0.1"

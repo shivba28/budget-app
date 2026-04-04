@@ -1,0 +1,268 @@
+/*
+ * Summary scroll: keep the month header outside the scroller so the inner panel
+ * always gets a bounded height and overflow-y: auto can engage (flex + min-height 0).
+ */
+.summary-root.page.page--fill:not(.tx-page) {
+  overflow: hidden;
+  padding-bottom: 0;
+  background: var(--background);
+}
+
+.summary-top {
+  flex-shrink: 0;
+}
+
+.summary-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0));
+  background: var(--background);
+}
+
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 1.35rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.summary-month-nav__btn {
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-h);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.summary-month-nav__btn:hover {
+  background: var(--surface-muted);
+  border-color: var(--border-strong);
+}
+
+.summary-month-nav__label {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  min-width: 10rem;
+  text-align: center;
+  color: var(--text-h);
+}
+
+.summary-empty {
+  margin: 1rem 0 1.5rem;
+  padding: 1.25rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+  line-height: 1.55;
+  box-shadow: var(--shadow-xs);
+}
+
+/* Chart card shell — border/shadow from shadcn Card */
+.summary-chart-card {
+  margin-bottom: 0.35rem;
+}
+
+.summary-chart {
+  margin-bottom: 0.35rem;
+}
+
+.summary-chart--with-center {
+  position: relative;
+}
+
+.summary-chart__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 0.75rem;
+}
+
+.summary-chart__center-label {
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-light);
+  margin-bottom: 0.15rem;
+}
+
+.summary-chart__center-amount {
+  font-family: var(--font-mono);
+  font-size: clamp(0.9rem, 3.5vw, 1.2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-h);
+  line-height: 1.15;
+  text-align: center;
+  max-width: 7.5rem;
+}
+
+.summary-legend {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 1.25rem 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.summary-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.875rem;
+  width: 95%;
+}
+
+.summary-legend__swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.summary-legend__name {
+  flex: 1;
+  color: var(--text-h);
+  font-weight: 500;
+}
+
+.summary-legend__amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-h);
+}
+
+.summary-stats {
+  margin-top: 0.35rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.summary-stats__title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+  color: var(--text-h);
+}
+
+.summary-stats__grid {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+@media (min-width: 480px) {
+  .summary-stats__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.summary-stats__item {
+  margin: 0;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.summary-stats__item dt {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  margin: 0 0 0.35rem;
+}
+
+.summary-stats__item dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.summary-stats__sub {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.summary-stats__desc {
+  display: block;
+  font-weight: 600;
+  color: var(--text-h);
+  word-break: break-word;
+}
+
+.summary-insights {
+  margin-top: 1.25rem;
+}
+
+.summary-insights__grid {
+  margin-bottom: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .summary-month-nav__btn {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-h);
+  }
+
+  .summary-month-nav__btn:hover {
+    background: var(--surface-muted);
+  }
+
+  .summary-empty {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .summary-chart-card {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  .summary-stats__item {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+}
