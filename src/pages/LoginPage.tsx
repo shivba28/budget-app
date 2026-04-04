@@ -43,6 +43,16 @@ export function LoginPage(): ReactElement {
       <div className="mx-auto w-full max-w-sm">
         <Card className="shadow-xs">
           <CardHeader className="text-center">
+            <div className="mb-3 flex justify-center">
+              <img
+                src="/pwa-512x512.png"
+                alt=""
+                width={350}
+                height={350}
+                className="h-25 w-25 object-contain"
+                decoding="async"
+              />
+            </div>
             <CardTitle className="text-xl">Budget Tracker</CardTitle>
             <CardDescription>
               Sign in with Google to sync your data to your Google Drive (app
