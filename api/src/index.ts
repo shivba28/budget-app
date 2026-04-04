@@ -8,7 +8,7 @@ import { applySyncRoutes } from './routes/sync/routes.js'
 import { applyTellerRoutes } from './routes/teller/tellerRoutes.js'
 import { config } from './auth/config/env.js'
 
-const port = Number(process.env['PORT']) || 4000
+const port = config.port
 
 function originMatches(allowed: string, origin: string): boolean {
   if (allowed === origin) return true

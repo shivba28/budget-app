@@ -74,7 +74,12 @@ export function setSessionAccessToken(token: string | null): void {
   addSessionToken('default', token)
 }
 
-const TELLER_PROXY_PORT = Number(process.env.TELLER_PROXY_PORT) || 3001
+function parseEnvPort(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === '') return fallback
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+const TELLER_PROXY_PORT = parseEnvPort(process.env.TELLER_PROXY_PORT, 3001)
 const TELLER_PROXY_HOST = process.env.TELLER_PROXY_HOST || '127.0.0.1'
 const TELLER_PROXY_BASE_URL = `http://${TELLER_PROXY_HOST}:${TELLER_PROXY_PORT}`
 

@@ -6,6 +6,29 @@ function listEnv(name: string, fallback: string): string[] {
     .filter(Boolean)
 }
 
+/** Avoid `Number(env) || d` — some deploy analyzers reject that BinaryExpression shape. */
+function envPort(defaultVal: number): number {
+  const raw = process.env['PORT']
+  if (raw === undefined || raw === '') return defaultVal
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : defaultVal
+}
+
+function envPositiveMs(name: string, defaultMs: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return defaultMs
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : defaultMs
+}
+
+function envMsOrDefault(name: string, defaultMs: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return defaultMs
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return defaultMs
+  return n
+}
+
 /** CORS + OAuth: merge FRONTEND_ORIGIN list with optional single FRONTEND_URL (e.g. Vercel). */
 function mergeFrontendOrigins(): string[] {
   const base = listEnv(
@@ -17,7 +40,7 @@ function mergeFrontendOrigins(): string[] {
 }
 
 export const config = {
-  port: Number(process.env['PORT']) || 4000,
+  port: envPort(4000),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
   isProd: process.env['NODE_ENV'] === 'production',
   frontendOrigins: mergeFrontendOrigins(),
@@ -41,10 +64,7 @@ export const config = {
    * How long PIN / passkey unlock lasts before asking again.
    * Override with PIN_UNLOCK_MS (milliseconds); default 12 hours.
    */
-  pinUnlockMs:
-    Number(process.env['PIN_UNLOCK_MS']) > 0
-      ? Number(process.env['PIN_UNLOCK_MS'])
-      : 12 * 60 * 60 * 1000,
+  pinUnlockMs: envPositiveMs('PIN_UNLOCK_MS', 12 * 60 * 60 * 1000),
   maxPinAttempts: 5,
   pinLockoutMs: 15 * 60 * 1000,
   /** WebAuthn RP ID = frontend hostname (no port in prod; localhost for dev) */
@@ -55,7 +75,7 @@ export const config = {
     'WEBAUTHN_ORIGIN',
     'http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173',
   ),
-  webauthnChallengeMs: Number(process.env['CHALLENGE_EXPIRATION_MS']) || 300_000,
+  webauthnChallengeMs: envMsOrDefault('CHALLENGE_EXPIRATION_MS', 300_000),
   /** Max failed WebAuthn auth verifications per googleSub per hour before lockout */
   webauthnMaxAuthFailures: 5,
   webauthnAuthLockoutMs: 60 * 60 * 1000,

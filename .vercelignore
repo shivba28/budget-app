@@ -1,0 +1,2 @@
+# Unified API runs elsewhere (e.g. Render); keep server code out of the Vercel upload / static analysis.
+api/
