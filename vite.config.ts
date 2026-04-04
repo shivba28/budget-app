@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => {
           description: 'Budget tracking PWA with bank sync',
           display: 'standalone',
           orientation: 'portrait',
-          background_color: '#fafafa',
+          background_color: '#171717',
           theme_color: '#171717',
           start_url: '/',
           scope: '/',
