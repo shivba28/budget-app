@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    build: {
+      // Main bundle includes React, Recharts, maps, etc. — above default 500 kB warning.
+      chunkSizeWarningLimit: 1200,
+    },
     plugins: [
       tailwindcss(),
       react(),
