@@ -38,6 +38,19 @@
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.85rem;
+  padding-top: max(0.15rem, env(safe-area-inset-top, 0px));
+}
+
+.tx-screen-head .page__title {
+  margin-bottom: 0;
+}
+
+.tx-screen-head__trailing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .tx-sync-btn {

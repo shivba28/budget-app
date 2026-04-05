@@ -34,12 +34,6 @@ function appendQuery(url: string, params: Record<string, string>): string {
   return u.toString()
 }
 
-function appendHash(url: string, fragment: string): string {
-  const u = new URL(url)
-  u.hash = fragment.startsWith('#') ? fragment : `#${fragment}`
-  return u.toString()
-}
-
 function oauthClient(): OAuth2Client {
   return new OAuth2Client(
     config.googleClientId,
@@ -80,7 +74,8 @@ export function applyAuthRoutes(app: Express): void {
     const client = oauthClient()
     const url = client.generateAuthUrl({
       access_type: 'offline',
-      ...(config.googleOauthPrompt ? { prompt: config.googleOauthPrompt } : {}),
+      /** Default forces account pick + re-consent so Google returns a refresh token (needed for Drive) when switching accounts or re-authorizing. Override with GOOGLE_OAUTH_PROMPT. */
+      prompt: config.googleOauthPrompt ?? 'select_account consent',
       scope: [
         'openid',
         'https://www.googleapis.com/auth/userinfo.email',
@@ -158,14 +153,15 @@ export function applyAuthRoutes(app: Express): void {
         googleSub,
         email,
       })
+      /** Put session id in query (not URL hash): many browsers/proxies strip fragments on 302 Location, so #token= was dropped and the app never stored the session. */
       const frontWithSync = appendQuery(config.frontendUrl, {
         sync: 'ok',
+        token: sessionId,
         ...(pinResetIntent ? { pin_reset: '1' } : {}),
       })
-      res.redirect(
-        appendHash(frontWithSync, `token=${encodeURIComponent(sessionId)}`),
-      )
-    } catch {
+      res.redirect(302, frontWithSync)
+    } catch (err) {
+      console.error('[api/auth/google/callback] token exchange failed', err)
       res.redirect(
         appendQuery(config.frontendUrl, { sync: 'error', reason: 'token_exchange' }),
       )

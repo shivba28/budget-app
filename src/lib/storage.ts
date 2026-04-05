@@ -1,6 +1,6 @@
 import type { Account, ConnectedAccountInfo, Transaction } from './domain'
 
-const KEYS = {
+export const KEYS = {
   accounts: 'budget-app:accounts',
   transactions: 'budget-app:transactions',
   categoryOverrides: 'budget-app:category-overrides',
@@ -15,6 +15,14 @@ const KEYS = {
   lastBankSyncAt: 'budget-app:last-bank-sync-at',
   /** User monthly budget caps (JSON: MonthlyBudgetsStoredV1) */
   monthlyBudgets: 'budget-app:monthly-budgets',
+  /** User finished the pre-account marketing carousel (`'1'` or absent) */
+  seenLanding: 'budget-app:seen-landing',
+  /** YYYY-MM when the 80% budget toast was last acknowledged */
+  budgetAlertShownMonth: 'budget-app:budget-alert-shown-month',
+  /** Budget browser notifications (`'1'` / absent) */
+  budgetNotificationsEnabled: 'budget-app:budget-notifications-enabled',
+  /** Last signed-in Google email on this device — used to detect account switch and clear local data */
+  lastAuthEmail: 'budget-app:last-auth-email',
 } as const
 
 /** Fired when account visibility toggles or exclusions list is pruned */
@@ -25,6 +33,9 @@ export const BANK_SYNC_COMPLETED_EVENT = 'budget-app-bank-sync-completed'
 
 /** Fired when monthly budget settings are saved or cleared. */
 export const MONTHLY_BUDGETS_CHANGED_EVENT = 'budget-app-monthly-budgets-changed'
+
+/** Fired when the user clears the “already shown this month” budget toast flag. */
+export const BUDGET_ALERT_ACK_RESET_EVENT = 'budget-app-budget-alert-ack-reset'
 
 export type MonthlyBudgetsStoredV1 = {
   readonly v: 1
@@ -203,6 +214,14 @@ export function getAccounts(): Account[] | null {
   return out.length > 0 ? out : null
 }
 
+export function hasSeenLanding(): boolean {
+  return localStorage.getItem(KEYS.seenLanding) === '1'
+}
+
+export function markLandingAsSeen(): void {
+  localStorage.setItem(KEYS.seenLanding, '1')
+}
+
 export function saveTransactions(transactions: Transaction[]): void {
   writeJson(KEYS.transactions, transactions)
 }
@@ -300,4 +319,8 @@ export function clearAll(): void {
   localStorage.removeItem(KEYS.accountsExcludedFromReports)
   localStorage.removeItem(KEYS.lastBankSyncAt)
   localStorage.removeItem(KEYS.monthlyBudgets)
+  localStorage.removeItem(KEYS.seenLanding)
+  localStorage.removeItem(KEYS.budgetAlertShownMonth)
+  localStorage.removeItem(KEYS.budgetNotificationsEnabled)
+  localStorage.removeItem(KEYS.lastAuthEmail)
 }

@@ -1,5 +1,9 @@
 /** Left-to-right tab order for main shell (dock + swipe). */
-export const MAIN_APP_TAB_PATHS = ['/', '/insights', '/settings'] as const
+export const MAIN_APP_TAB_PATHS = [
+  '/app/transactions',
+  '/app/insights',
+  '/app/settings',
+] as const
 
 export type MainAppTabPath = (typeof MAIN_APP_TAB_PATHS)[number]
 

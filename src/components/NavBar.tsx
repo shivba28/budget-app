@@ -120,7 +120,7 @@ export function NavBar(): ReactElement {
         }}
       >
         <DockLink
-          to="/"
+          to="/app/transactions"
           end
           label="Transactions"
           Icon={LayoutList}
@@ -128,14 +128,14 @@ export function NavBar(): ReactElement {
           reduceMotion={reduceMotion}
         />
         <DockLink
-          to="/insights"
+          to="/app/insights"
           label="Insights"
           Icon={Lightbulb}
           labelsVisible={labelsVisible}
           reduceMotion={reduceMotion}
         />
         <DockLink
-          to="/settings"
+          to="/app/settings"
           label="Settings"
           Icon={Settings}
           labelsVisible={labelsVisible}

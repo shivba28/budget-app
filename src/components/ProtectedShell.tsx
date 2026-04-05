@@ -7,6 +7,8 @@ import { PasskeyPostLoginPrompt } from '@/components/PasskeyPostLoginPrompt'
 import { NavScrollProvider } from '@/contexts/NavScrollContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { collectLocalBackup } from '@/lib/cloudBackup/collect'
+import { recordDriveSyncFailure, recordDriveSyncSuccess } from '@/lib/cloudBackup/driveSyncStatus'
+import { setStoredCloudBackupEnvelopeAt } from '@/lib/cloudBackup/envelopeAt'
 import { pushBackupToServer } from '@/lib/syncApi'
 import '../App.css'
 
@@ -20,8 +22,10 @@ export function ProtectedShell(): ReactElement {
         try {
           const local = await collectLocalBackup()
           await pushBackupToServer(local)
+          setStoredCloudBackupEnvelopeAt(local.updatedAt)
+          recordDriveSyncSuccess()
         } catch {
-          // offline or locked out
+          recordDriveSyncFailure('Could not reach Google Drive')
         }
       })()
     }, 120_000)

@@ -52,8 +52,11 @@ export const config = {
   sessionSecret: process.env['SESSION_SECRET'] ?? 'dev-insecure-change-me',
   frontendUrl: process.env['FRONTEND_URL'] ?? 'http://localhost:5174',
   dataDir: process.env['DATA_DIR'] ?? 'data',
-  googleOauthPrompt:
-    process.env['GOOGLE_OAUTH_PROMPT'] === 'consent' ? 'consent' : undefined,
+  /**
+   * Google `prompt` param. If unset, the server defaults to `select_account consent` so switching Google accounts still returns a refresh token.
+   * @see https://developers.google.com/identity/protocols/oauth2/openid-connect#authenticationuriparameters
+   */
+  googleOauthPrompt: process.env['GOOGLE_OAUTH_PROMPT']?.trim() || undefined,
   cookieSameSite:
     process.env['COOKIE_SAMESITE'] === 'none'
       ? ('none' as const)

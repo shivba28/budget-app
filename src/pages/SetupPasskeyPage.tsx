@@ -43,7 +43,7 @@ export function SetupPasskeyPage(): ReactElement {
   }
 
   if (status === 'ready') {
-    return <Navigate to="/" replace />
+    return <Navigate to="/app/transactions" replace />
   }
 
   const supported = webAuthnSupported()
@@ -61,7 +61,7 @@ export function SetupPasskeyPage(): ReactElement {
       await registerPasskeyFlow(label.slice(0, 120))
       await refresh()
       await onUnlocked()
-      navigate('/', { replace: true })
+      navigate('/app/transactions', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {

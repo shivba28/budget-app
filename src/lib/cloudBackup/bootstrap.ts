@@ -1,5 +1,10 @@
 import { applyCloudBackupPayload } from './apply'
 import { collectLocalBackup } from './collect'
+import { recordDriveSyncFailure, recordDriveSyncSuccess } from './driveSyncStatus'
+import {
+  setStoredCloudBackupEnvelopeAt,
+  shouldRestoreRemoteOverLocal,
+} from './envelopeAt'
 import { parseCloudBackupJson } from './types'
 import { SESSION_BOOTSTRAP_KEY } from './keys'
 import { pushBackupToServer, pullBackupFromServer } from '../syncApi'
@@ -20,28 +25,30 @@ export async function runDriveBootstrap(): Promise<{
 
     if (!remote) {
       await pushBackupToServer(local)
+      setStoredCloudBackupEnvelopeAt(local.updatedAt)
+      recordDriveSyncSuccess()
       window.sessionStorage.setItem(SESSION_BOOTSTRAP_KEY, '1')
       return { ok: true, message: 'Backed up to Google Drive.' }
     }
 
-    const localTs = Date.parse(local.updatedAt)
-    const remoteTs = Date.parse(remote.updatedAt)
-    const shouldRestore =
-      Number.isFinite(remoteTs) && Number.isFinite(localTs)
-        ? remoteTs > localTs
-        : Boolean(remote.updatedAt && !local.updatedAt)
+    const shouldRestore = shouldRestoreRemoteOverLocal(local, remote)
 
     if (shouldRestore) {
       await applyCloudBackupPayload(remote)
+      recordDriveSyncSuccess()
       window.sessionStorage.setItem(SESSION_BOOTSTRAP_KEY, '1')
       window.location.reload()
       return { ok: true, message: 'Restored from Google Drive.' }
     }
 
-    await pushBackupToServer(await collectLocalBackup())
+    const toPush = await collectLocalBackup()
+    await pushBackupToServer(toPush)
+    setStoredCloudBackupEnvelopeAt(toPush.updatedAt)
+    recordDriveSyncSuccess()
     window.sessionStorage.setItem(SESSION_BOOTSTRAP_KEY, '1')
     return { ok: true, message: 'Backed up to Google Drive.' }
   } catch (e) {
+    recordDriveSyncFailure(e instanceof Error ? e.message : 'Drive sync failed')
     return {
       ok: false,
       message: e instanceof Error ? e.message : 'Drive sync failed',

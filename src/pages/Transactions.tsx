@@ -23,6 +23,7 @@ import {
   transactionMatchesDatePreset,
 } from '../lib/transactionGrouping'
 import * as storage from '../lib/storage'
+import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -363,15 +364,18 @@ export function Transactions(): ReactElement {
       <div className="tx-sticky">
         <div className="tx-screen-head">
           <h1 className="page__title">Transactions</h1>
-          <Button
-            type="button"
-            className="tx-sync-btn"
-            size="sm"
-            disabled={syncing}
-            onClick={() => void doSync()}
-          >
-            {syncing ? 'Syncing…' : 'Sync'}
-          </Button>
+          <div className="tx-screen-head__trailing">
+            <DriveSyncIndicator variant="header" />
+            <Button
+              type="button"
+              className="tx-sync-btn"
+              size="sm"
+              disabled={syncing}
+              onClick={() => void doSync()}
+            >
+              {syncing ? 'Syncing…' : 'Sync'}
+            </Button>
+          </div>
         </div>
 
         <div className="tx-toolbar">

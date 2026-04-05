@@ -11,8 +11,17 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
+import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
 import { collectLocalBackup } from '@/lib/cloudBackup/collect'
+import { recordDriveSyncFailure, recordDriveSyncSuccess } from '@/lib/cloudBackup/driveSyncStatus'
+import { setStoredCloudBackupEnvelopeAt } from '@/lib/cloudBackup/envelopeAt'
 import { registerPasskeyFlow } from '@/lib/passkeyFlow'
+import {
+  clearBudgetAlertShownMonth,
+  getNotificationsEnabled,
+  requestNotificationPermission,
+  setNotificationsEnabled,
+} from '@/lib/budget'
 import * as storage from '../lib/storage'
 import {
   changePinRequest,
@@ -70,6 +79,22 @@ function budgetFormFromStorage(): BudgetFormState {
   }
 }
 
+function buildCategoryOverridesFromForm(
+  form: BudgetFormState,
+):
+  | { ok: true; categories: Partial<Record<string, number>> }
+  | { ok: false; message: string } {
+  const categories: Partial<Record<string, number>> = {}
+  for (const c of CATEGORIES) {
+    const r = parseUsdBudgetInput(form.categoryInputs[c.id] ?? '')
+    if (r === 'invalid') {
+      return { ok: false, message: `Invalid amount for ${c.label}.` }
+    }
+    if (r !== 'empty') categories[c.id] = r
+  }
+  return { ok: true, categories }
+}
+
 type EnrollmentGroup = {
   readonly enrollmentId: string
   readonly institution: string
@@ -114,6 +139,10 @@ export function Settings(): ReactElement {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [budgetForm, setBudgetForm] = useState<BudgetFormState>(budgetFormFromStorage)
   const [budgetSaveError, setBudgetSaveError] = useState<string | null>(null)
+  const [budgetNotifEnabled, setBudgetNotifEnabled] = useState(() =>
+    getNotificationsEnabled(),
+  )
+  const [budgetNotifDeniedHint, setBudgetNotifDeniedHint] = useState(false)
 
   const [accounts, setAccounts] = useState<Account[]>(() => loadLinkedAccounts())
   const [busy, setBusy] = useState(false)
@@ -250,8 +279,12 @@ export function Settings(): ReactElement {
     try {
       const payload = await collectLocalBackup()
       await pushBackupToServer(payload)
+      setStoredCloudBackupEnvelopeAt(payload.updatedAt)
+      recordDriveSyncSuccess()
     } catch (e) {
-      setAccountError(e instanceof Error ? e.message : 'Sync failed')
+      const msg = e instanceof Error ? e.message : 'Sync failed'
+      setAccountError(msg)
+      recordDriveSyncFailure(msg)
     } finally {
       setSyncBusy(false)
     }
@@ -259,6 +292,8 @@ export function Settings(): ReactElement {
 
   async function onCloudSignOut(): Promise<void> {
     await logoutSync()
+    clearSyncMessage()
+    await refresh()
     navigate('/login', { replace: true })
   }
 
@@ -322,14 +357,10 @@ export function Settings(): ReactElement {
 
   function onSaveMonthlyBudgets(): void {
     setBudgetSaveError(null)
-    const categories: Partial<Record<string, number>> = {}
-    for (const c of CATEGORIES) {
-      const r = parseUsdBudgetInput(budgetForm.categoryInputs[c.id] ?? '')
-      if (r === 'invalid') {
-        setBudgetSaveError(`Invalid amount for ${c.label}.`)
-        return
-      }
-      if (r !== 'empty') categories[c.id] = r
+    const built = buildCategoryOverridesFromForm(budgetForm)
+    if (!built.ok) {
+      setBudgetSaveError(built.message)
+      return
     }
     let totalMonthly: number | null = null
     if (budgetForm.useCustomTotal) {
@@ -342,7 +373,22 @@ export function Settings(): ReactElement {
       }
       totalMonthly = r
     }
-    storage.saveMonthlyBudgets({ v: 1, categories, totalMonthly })
+    storage.saveMonthlyBudgets({ v: 1, categories: built.categories, totalMonthly })
+  }
+
+  function onToggleOverallMonthlyCap(checked: boolean): void {
+    if (checked) {
+      setBudgetForm((f) => ({ ...f, useCustomTotal: true }))
+      return
+    }
+    setBudgetSaveError(null)
+    const built = buildCategoryOverridesFromForm(budgetForm)
+    if (!built.ok) {
+      setBudgetSaveError(built.message)
+      return
+    }
+    storage.saveMonthlyBudgets({ v: 1, categories: built.categories, totalMonthly: null })
+    setBudgetForm((f) => ({ ...f, useCustomTotal: false, totalInput: '' }))
   }
 
   function onResetMonthlyBudgets(): void {
@@ -426,6 +472,7 @@ export function Settings(): ReactElement {
                 app data folder. Bank link tokens are not uploaded—connect your bank
                 again on each device you trust.
               </p>
+              <DriveSyncIndicator variant="full" />
               {lastSyncMessage ? (
                 <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                   {lastSyncMessage}{' '}
@@ -748,9 +795,7 @@ export function Settings(): ReactElement {
                     type="checkbox"
                     className="mt-1"
                     checked={budgetForm.useCustomTotal}
-                    onChange={(e) =>
-                      setBudgetForm((f) => ({ ...f, useCustomTotal: e.target.checked }))
-                    }
+                    onChange={(e) => onToggleOverallMonthlyCap(e.target.checked)}
                   />
                   <span>
                     Set overall monthly cap (instead of the sum of the category budgets above)
@@ -767,6 +812,56 @@ export function Settings(): ReactElement {
                   }
                   aria-label="Overall monthly budget cap"
                 />
+              </div>
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={budgetNotifEnabled}
+                    onChange={async (e) => {
+                      const on = e.target.checked
+                      setBudgetNotifDeniedHint(false)
+                      if (!on) {
+                        setBudgetNotifEnabled(false)
+                        setNotificationsEnabled(false)
+                        return
+                      }
+                      const perm = await requestNotificationPermission()
+                      if (perm !== 'granted') {
+                        setBudgetNotifDeniedHint(true)
+                        setBudgetNotifEnabled(false)
+                        setNotificationsEnabled(false)
+                        return
+                      }
+                      setBudgetNotifEnabled(true)
+                      setNotificationsEnabled(true)
+                    }}
+                  />
+                  <span>Enable budget notifications</span>
+                </label>
+                {budgetNotifDeniedHint ? (
+                  <p className="text-xs text-muted-foreground pl-6 max-w-md">
+                    Notifications are blocked for this site. Turn them on in your browser settings
+                    (address bar lock icon → Site settings → Notifications).
+                  </p>
+                ) : null}
+                <div className="pl-6 flex flex-col gap-1.5 max-w-md">
+                  <p className="text-xs text-muted-foreground">
+                    The in-app 80% budget banner only appears once per calendar month. Reset it
+                    here if you changed your budget and want to see it again (you still need ≥80%
+                    of the new cap in spending this month).
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => clearBudgetAlertShownMonth()}
+                  >
+                    Reset budget alert for this month
+                  </Button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                 <Button type="button" variant="secondary" onClick={onSaveMonthlyBudgets}>

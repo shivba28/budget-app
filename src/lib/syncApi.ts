@@ -1,4 +1,6 @@
+import { clearDriveSyncStatus } from '@/lib/cloudBackup/driveSyncStatus'
 import { SESSION_BOOTSTRAP_KEY } from '@/lib/cloudBackup/keys'
+import * as storage from '@/lib/storage'
 import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -44,18 +46,33 @@ export function captureAuthTokenFromUrl(): boolean {
     const hash = window.location.hash.startsWith('#')
       ? window.location.hash.slice(1)
       : window.location.hash
-    const params = new URLSearchParams(hash)
-    const token = params.get('token')
-    if (!token) return false
-    setAuthToken(token)
-    params.delete('token')
-    const nextHash = params.toString()
-    window.history.replaceState(
-      {},
-      '',
-      `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`,
-    )
-    return true
+    const hashParams = new URLSearchParams(hash)
+    let token = hashParams.get('token')
+    if (token) {
+      setAuthToken(token)
+      hashParams.delete('token')
+      const nextHash = hashParams.toString()
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`,
+      )
+      return true
+    }
+    const qs = new URLSearchParams(window.location.search)
+    token = qs.get('token')
+    if (token) {
+      setAuthToken(token)
+      qs.delete('token')
+      const nextSearch = qs.toString()
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+      )
+      return true
+    }
+    return false
   } catch {
     return false
   }
@@ -120,6 +137,8 @@ export async function logoutSync(): Promise<void> {
     h ? { method: 'POST', headers: h } : { method: 'POST' },
   )
   setAuthToken(null)
+  storage.clearAll()
+  clearDriveSyncStatus()
   try {
     window.sessionStorage.removeItem(SESSION_BOOTSTRAP_KEY)
   } catch {

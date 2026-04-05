@@ -1,5 +1,6 @@
 import type { CloudBackupPayload } from './types'
 import { isAllowedBackupKey } from './keys'
+import { setStoredCloudBackupEnvelopeAt } from './envelopeAt'
 
 export async function applyCloudBackupPayload(data: CloudBackupPayload): Promise<void> {
   if (typeof window === 'undefined' || !window.localStorage) return
@@ -12,4 +13,5 @@ export async function applyCloudBackupPayload(data: CloudBackupPayload): Promise
       // quota
     }
   }
+  setStoredCloudBackupEnvelopeAt(data.updatedAt)
 }

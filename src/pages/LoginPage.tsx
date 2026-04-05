@@ -1,5 +1,4 @@
 import type { ReactElement } from 'react'
-import { useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,11 +13,7 @@ import { startGoogleSignIn } from '@/lib/syncApi'
 import './Page.css'
 
 export function LoginPage(): ReactElement {
-  const { status, refresh, lastSyncMessage, clearSyncMessage } = useAuth()
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
+  const { status, lastSyncMessage, clearSyncMessage } = useAuth()
 
   if (status === 'loading') {
     return (
@@ -29,7 +24,7 @@ export function LoginPage(): ReactElement {
   }
 
   if (status === 'ready') {
-    return <Navigate to="/" replace />
+    return <Navigate to="/app/transactions" replace />
   }
   if (status === 'need_pin_setup') {
     return <Navigate to="/setup-pin" replace />

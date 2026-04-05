@@ -7,6 +7,7 @@ import {
   shiftCalendarMonth,
 } from '../lib/api'
 import * as storage from '../lib/storage'
+import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
 import { InsightsDashboard } from '@/components/InsightsDashboard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -100,7 +101,12 @@ export function Insights(): ReactElement {
     return (
       <main className="page page--fill page--summary summary-root">
         <div className="summary-top">
-          <h1 className="page__title">Insights</h1>
+          <div className="summary-head">
+            <h1 className="page__title">Insights</h1>
+            <div className="summary-head__trailing">
+              <DriveSyncIndicator variant="header" />
+            </div>
+          </div>
         </div>
         <div ref={scrollRef} className="summary-scroll">
           <Card className="border-dashed shadow-none" role="status">
@@ -118,30 +124,35 @@ export function Insights(): ReactElement {
   return (
     <main className="page page--fill page--summary summary-root">
       <div className="summary-top">
-        <div className="summary-head">
-          <h1 className="page__title">Insights</h1>
-          <div className="summary-month-nav" aria-label="Select month">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-9 shrink-0 rounded-lg text-lg"
-              onClick={goPrev}
-              aria-label="Previous month"
-            >
-              ‹
-            </Button>
-            <span className="summary-month-nav__label">{monthLabel}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-9 shrink-0 rounded-lg text-lg"
-              onClick={goNext}
-              aria-label="Next month"
-            >
-              ›
-            </Button>
+        <div className="summary-head summary-head--insights">
+          <div className="summary-head__title-row">
+            <h1 className="page__title">Insights</h1>
+            <DriveSyncIndicator variant="header" />
+          </div>
+          <div className="summary-head__month-row">
+            <div className="summary-month-nav" aria-label="Select month">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-9 shrink-0 rounded-lg text-lg"
+                onClick={goPrev}
+                aria-label="Previous month"
+              >
+                ‹
+              </Button>
+              <span className="summary-month-nav__label">{monthLabel}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-9 shrink-0 rounded-lg text-lg"
+                onClick={goNext}
+                aria-label="Next month"
+              >
+                ›
+              </Button>
+            </div>
           </div>
         </div>
       </div>

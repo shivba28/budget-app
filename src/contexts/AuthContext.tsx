@@ -4,11 +4,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
-import { runDriveBootstrap } from '@/lib/cloudBackup/bootstrap'
+import { clearBootstrapSessionFlag, runDriveBootstrap } from '@/lib/cloudBackup/bootstrap'
+import { clearDriveSyncStatus } from '@/lib/cloudBackup/driveSyncStatus'
+import * as storage from '@/lib/storage'
 import {
   captureAuthTokenFromUrl,
   fetchAuthMe,
@@ -52,6 +55,27 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
 
   const refresh = useCallback(async () => {
     const me = await fetchAuthMe()
+    if (me.authenticated) {
+      const prev = window.localStorage.getItem(storage.KEYS.lastAuthEmail)
+      if (prev !== null && prev !== me.email) {
+        storage.clearAll()
+        clearDriveSyncStatus()
+        clearBootstrapSessionFlag()
+        bootstrapOnce.current = false
+      }
+      try {
+        window.localStorage.setItem(storage.KEYS.lastAuthEmail, me.email)
+      } catch {
+        /* quota */
+      }
+    } else {
+      try {
+        window.localStorage.removeItem(storage.KEYS.lastAuthEmail)
+      } catch {
+        /* ignore */
+      }
+      bootstrapOnce.current = false
+    }
     setEmail(me.authenticated ? me.email : null)
     setHasPasskeys(me.authenticated ? me.hasPasskeys : false)
     setHasPin(me.authenticated ? me.hasPin : false)
@@ -68,10 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     }
   }, [])
 
+  /** Run before child useEffects so ?token= is in localStorage before LoginPage calls refresh(). */
+  useLayoutEffect(() => {
+    captureAuthTokenFromUrl()
+  }, [])
+
   useEffect(() => {
-    // OAuth return + token capture: defer to avoid react-hooks/set-state-in-effect on refresh().
+    // OAuth query cleanup + initial / post-OAuth session load
     const t = window.setTimeout(() => {
-      captureAuthTokenFromUrl()
       const params = new URLSearchParams(window.location.search)
       const sync = params.get('sync')
       if (sync === 'ok') {
@@ -87,8 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         const reason = params.get('reason') ?? 'unknown'
         const msg =
           reason === 'no_refresh_token'
-            ? 'Google did not return a refresh token. Remove app access in Google Account settings and sign in again.'
-            : `Sign-in failed (${reason}).`
+            ? 'Google did not return a refresh token. In Google Account → Security → Third-party access, remove this app and sign in again. If it persists, ensure the API server can use prompt=select_account consent (default) or consent.'
+            : reason === 'bad_state'
+              ? 'Sign-in session expired or cookies were blocked. Close other tabs, try again, or use the same browser window for the whole Google sign-in flow.'
+              : `Sign-in failed (${reason}).`
         setLastSyncMessage(msg)
         params.delete('sync')
         params.delete('reason')
@@ -105,6 +135,17 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   }, [refresh])
 
   const clearSyncMessage = useCallback(() => setLastSyncMessage(null), [])
+
+  useEffect(() => {
+    if (!lastSyncMessage) return
+    const isDriveBackupToast =
+      /Backed up to Google Drive\.|Restored from Google Drive\.|Already synced this session\./i.test(
+        lastSyncMessage,
+      )
+    if (!isDriveBackupToast) return
+    const t = window.setTimeout(() => setLastSyncMessage(null), 5000)
+    return () => window.clearTimeout(t)
+  }, [lastSyncMessage])
 
   const value = useMemo(
     (): AuthContextValue => ({

@@ -46,7 +46,7 @@ export function UnlockPinPage(): ReactElement {
   }
 
   if (status === 'ready') {
-    return <Navigate to="/" replace />
+    return <Navigate to="/app/transactions" replace />
   }
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
@@ -61,7 +61,7 @@ export function UnlockPinPage(): ReactElement {
       await verifyPinRequest(pin)
       await refresh()
       await onUnlocked()
-      navigate('/', { replace: true })
+      navigate('/app/transactions', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setPin('')
@@ -88,7 +88,7 @@ export function UnlockPinPage(): ReactElement {
       await unlockWithPasskeyFlow()
       await refresh()
       await onUnlocked()
-      navigate('/', { replace: true })
+      navigate('/app/transactions', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Passkey sign-in failed')
     } finally {
