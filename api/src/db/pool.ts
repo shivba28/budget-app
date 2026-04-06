@@ -78,7 +78,7 @@ function createPool(url: string): Pool {
     dns.setDefaultResultOrder('ipv4first')
   }
   const p = new Pool(buildPoolConfig(url))
-  p.on('error', (err) => {
+  p.on('error', (err: unknown) => {
     // Idle clients in the pool can emit after the server/NAT drops the TCP session.
     // Without a listener, Node treats this as an unhandled 'error' and exits.
     console.error('[db/pool] idle client error (connection discarded)', err)
