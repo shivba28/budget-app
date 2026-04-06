@@ -150,3 +150,15 @@ export function sendBudgetBrowserNotification(
   }
 }
 
+export function sendTestBrowserNotification(): void {
+  if (typeof Notification === 'undefined') return
+  if (Notification.permission !== 'granted') return
+  try {
+    new Notification('Notifications enabled', {
+      body: 'Test notification from Budget App.',
+    })
+  } catch {
+    /* ignore */
+  }
+}
+

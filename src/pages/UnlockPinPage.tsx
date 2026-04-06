@@ -108,8 +108,8 @@ export function UnlockPinPage(): ReactElement {
               {canPasskey && hasPin
                 ? 'Use your passkey or 4-digit app code. Your Google session is already active.'
                 : canPasskey
-                  ? 'Use your passkey to open the app and sync with Drive.'
-                  : 'Your Google session is active. Enter your 4-digit code to open the app and sync with Drive.'}
+                  ? 'Use your passkey to open the app.'
+                  : 'Your Google session is active. Enter your 4-digit code to open the app.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">

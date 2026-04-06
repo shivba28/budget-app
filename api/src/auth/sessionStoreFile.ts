@@ -13,10 +13,10 @@ import { open, seal } from './crypto/secretBox.js'
 const FILE_NAME = 'sessions.json'
 
 export interface SessionRecord {
+  /** Empty string when no Google refresh token is stored for this session. */
   encryptedRefreshToken: string
   googleSub: string
   email: string
-  driveFileId?: string
   createdAt: string
   /** Sliding session expiry */
   expiresAt: string
@@ -29,6 +29,8 @@ export interface SessionRecord {
   pinLockedUntil?: string | null
   /** Last successful second factor */
   authMethod?: 'pin' | 'passkey'
+  /** ISO time of last request that counted as user activity while PIN-unlocked */
+  pinLastActivityAt?: string | null
 }
 
 interface StoreFile {
@@ -79,7 +81,7 @@ function defaultExpires(): string {
 }
 
 export function createSession(params: {
-  refreshToken: string
+  refreshToken: string | null
   googleSub: string
   email: string
 }): string {
@@ -87,7 +89,9 @@ export function createSession(params: {
   const store = readStore()
   const now = new Date().toISOString()
   store.sessions[sessionId] = {
-    encryptedRefreshToken: seal(params.refreshToken, config.sessionSecret),
+    encryptedRefreshToken: params.refreshToken
+      ? seal(params.refreshToken, config.sessionSecret)
+      : '',
     googleSub: params.googleSub,
     email: params.email,
     createdAt: now,
@@ -98,23 +102,38 @@ export function createSession(params: {
   return sessionId
 }
 
-function migrateRecord(rec: SessionRecord): SessionRecord {
+/** Normalize persisted rows; returns whether the store should be rewritten. */
+function migrateRecord(rec: SessionRecord): boolean {
+  let dirty = false
   if (!rec.expiresAt) {
     rec.expiresAt = defaultExpires()
+    dirty = true
   }
   if (typeof rec.pinFailures !== 'number') {
     rec.pinFailures = 0
+    dirty = true
   }
-  return rec
+  const legacy = rec as unknown as Record<string, unknown>
+  if ('driveFileId' in legacy) {
+    delete legacy.driveFileId
+    dirty = true
+  }
+  if (
+    rec.pinVerifiedUntil &&
+    Date.parse(rec.pinVerifiedUntil) > Date.now() &&
+    !rec.pinLastActivityAt
+  ) {
+    rec.pinLastActivityAt = new Date().toISOString()
+    dirty = true
+  }
+  return dirty
 }
 
 export function getSession(sessionId: string): SessionRecord | null {
   const store = readStore()
   const rec = store.sessions[sessionId]
   if (!rec) return null
-  const before = rec.expiresAt
-  migrateRecord(rec)
-  if (rec.expiresAt !== before) {
+  if (migrateRecord(rec)) {
     writeStore(store)
   }
   const exp = Date.parse(rec.expiresAt)
@@ -126,12 +145,31 @@ export function getSession(sessionId: string): SessionRecord | null {
   return rec
 }
 
-/** Extend sliding session window (call on authenticated API use). */
-export function touchSessionExpiry(sessionId: string): void {
+export type TouchSessionExpiryOptions = {
+  /**
+   * When false, only slides {@link SessionRecord.expiresAt}. Use for lightweight polls (e.g. GET /api/auth/me)
+   * so they do not reset the PIN inactivity timer.
+   */
+  extendPinActivity?: boolean
+}
+
+/**
+ * Extend sliding session window. When {@link TouchSessionExpiryOptions.extendPinActivity} is true (default),
+ * and the user is PIN-unlocked, also refreshes {@link SessionRecord.pinLastActivityAt}.
+ */
+export function touchSessionExpiry(
+  sessionId: string,
+  opts?: TouchSessionExpiryOptions,
+): void {
   const store = readStore()
   const rec = store.sessions[sessionId]
   if (!rec) return
+  const extendPin = opts?.extendPinActivity !== false
+  const pinUnlocked = extendPin && isPinUnlocked(rec)
   rec.expiresAt = defaultExpires()
+  if (pinUnlocked) {
+    rec.pinLastActivityAt = new Date().toISOString()
+  }
   writeStore(store)
 }
 
@@ -143,18 +181,9 @@ export function deleteSession(sessionId: string): void {
   }
 }
 
-export function setDriveFileId(sessionId: string, driveFileId: string): void {
-  const store = readStore()
-  const rec = store.sessions[sessionId]
-  if (rec) {
-    rec.driveFileId = driveFileId
-    writeStore(store)
-  }
-}
-
 export function getRefreshToken(sessionId: string): string | null {
   const rec = getSession(sessionId)
-  if (!rec) return null
+  if (!rec || !rec.encryptedRefreshToken) return null
   try {
     return open(rec.encryptedRefreshToken, config.sessionSecret)
   } catch {
@@ -167,14 +196,16 @@ export function getLatestRefreshTokenForGoogleSub(
 ): string | null {
   const store = readStore()
   let best: { rec: SessionRecord; exp: number } | null = null
+  let dirty = false
   for (const rec of Object.values(store.sessions)) {
     if (rec.googleSub !== googleSub) continue
-    migrateRecord(rec)
+    if (migrateRecord(rec)) dirty = true
     const exp = Date.parse(rec.expiresAt)
     if (!Number.isFinite(exp) || exp <= Date.now()) continue
     if (!best || exp > best.exp) best = { rec, exp }
   }
-  if (!best) return null
+  if (dirty) writeStore(store)
+  if (!best || !best.rec.encryptedRefreshToken) return null
   try {
     return open(best.rec.encryptedRefreshToken, config.sessionSecret)
   } catch {
@@ -192,6 +223,7 @@ export function updateSessionRecord(
       | 'pinLockedUntil'
       | 'expiresAt'
       | 'authMethod'
+      | 'pinLastActivityAt'
     >
   >,
 ): void {
@@ -210,9 +242,11 @@ export function setSecondFactorVerified(
   sessionId: string,
   method: 'pin' | 'passkey',
 ): void {
+  const now = new Date().toISOString()
   const until = new Date(Date.now() + config.pinUnlockMs).toISOString()
   updateSessionRecord(sessionId, {
     pinVerifiedUntil: until,
+    pinLastActivityAt: now,
     pinFailures: 0,
     pinLockedUntil: null,
     authMethod: method,
@@ -229,25 +263,35 @@ export function clearPinUnlockForGoogleSub(googleSub: string): void {
       rec.pinVerifiedUntil = null
       changed = true
     }
+    if (rec.pinLastActivityAt) {
+      rec.pinLastActivityAt = null
+      changed = true
+    }
   }
   if (changed) writeStore(store)
 }
 
 export function isPinUnlocked(rec: SessionRecord): boolean {
   if (!rec.pinVerifiedUntil) return false
-  return Date.parse(rec.pinVerifiedUntil) > Date.now()
+  if (Date.parse(rec.pinVerifiedUntil) <= Date.now()) return false
+  if (config.pinInactivityTimeoutMs <= 0) return true
+  const last = rec.pinLastActivityAt
+  if (!last) return true
+  return Date.now() - Date.parse(last) < config.pinInactivityTimeoutMs
 }
 
 /** For passkey re-auth when no session: recover email from any non-expired session row. */
 export function getLatestEmailForGoogleSub(googleSub: string): string | null {
   const store = readStore()
   let best: { email: string; exp: number } | null = null
+  let dirty = false
   for (const rec of Object.values(store.sessions)) {
     if (rec.googleSub !== googleSub) continue
-    migrateRecord(rec)
+    if (migrateRecord(rec)) dirty = true
     const exp = Date.parse(rec.expiresAt)
     if (!Number.isFinite(exp) || exp <= Date.now()) continue
     if (!best || exp > best.exp) best = { email: rec.email, exp }
   }
+  if (dirty) writeStore(store)
   return best?.email ?? null
 }

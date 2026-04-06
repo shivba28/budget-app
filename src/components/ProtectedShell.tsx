@@ -1,36 +1,14 @@
 import type { ReactElement } from 'react'
-import { useEffect } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { BankAutoSync } from '@/components/BankAutoSync'
 import { NavBar } from '@/components/NavBar'
 import { PasskeyPostLoginPrompt } from '@/components/PasskeyPostLoginPrompt'
 import { NavScrollProvider } from '@/contexts/NavScrollContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { collectLocalBackup } from '@/lib/cloudBackup/collect'
-import { recordDriveSyncFailure, recordDriveSyncSuccess } from '@/lib/cloudBackup/driveSyncStatus'
-import { setStoredCloudBackupEnvelopeAt } from '@/lib/cloudBackup/envelopeAt'
-import { pushBackupToServer } from '@/lib/syncApi'
 import '../App.css'
 
 export function ProtectedShell(): ReactElement {
   const { status } = useAuth()
-
-  useEffect(() => {
-    if (status !== 'ready') return
-    const id = window.setInterval(() => {
-      void (async () => {
-        try {
-          const local = await collectLocalBackup()
-          await pushBackupToServer(local)
-          setStoredCloudBackupEnvelopeAt(local.updatedAt)
-          recordDriveSyncSuccess()
-        } catch {
-          recordDriveSyncFailure('Could not reach Google Drive')
-        }
-      })()
-    }, 120_000)
-    return () => window.clearInterval(id)
-  }, [status])
 
   if (status === 'loading') {
     return (

@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { NavLink } from 'react-router-dom'
-import { LayoutList, Lightbulb, Settings } from 'lucide-react'
+import { NavLink, useLocation } from 'react-router-dom'
+import { LayoutList, Lightbulb, Plane, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useNavScroll } from '@/contexts/NavScrollContext'
 
@@ -19,6 +19,8 @@ type DockLinkProps = {
   readonly Icon: LucideIcon
   readonly labelsVisible: boolean
   readonly reduceMotion: boolean | null
+  /** When set, treat the link as active (e.g. nested routes under `/app/trips/:id`). */
+  readonly forceActive?: boolean
 }
 
 function DockLink({
@@ -28,6 +30,7 @@ function DockLink({
   Icon,
   labelsVisible,
   reduceMotion,
+  forceActive,
 }: DockLinkProps): ReactElement {
   return (
     <NavLink
@@ -38,52 +41,55 @@ function DockLink({
         cn(
           navLinkBase,
           labelsVisible ? 'gap-0.5 py-2.5' : 'gap-0 py-2',
-          isActive
+          forceActive ?? isActive
             ? 'app-nav__link--active text-foreground'
             : 'text-muted-foreground hover:text-foreground',
         )
       }
     >
-      {({ isActive }) => (
-        <>
-          {isActive ? (
+      {({ isActive }) => {
+        const active = forceActive ?? isActive
+        return (
+          <>
+            {active ? (
+              <motion.span
+                layoutId="main-nav-pill"
+                className="absolute inset-0 -z-10 rounded-[1.25rem] bg-foreground/12 dark:bg-foreground/18"
+                transition={
+                  reduceMotion
+                    ? { duration: 0.15 }
+                    : { type: 'spring', stiffness: 420, damping: 34, mass: 0.85 }
+                }
+              />
+            ) : null}
             <motion.span
-              layoutId="main-nav-pill"
-              className="absolute inset-0 -z-10 rounded-[1.25rem] bg-foreground/12 dark:bg-foreground/18"
+              animate={{
+                scale: active ? 1.06 : 1,
+                opacity: active ? 1 : 0.88,
+              }}
               transition={
                 reduceMotion
-                  ? { duration: 0.15 }
-                  : { type: 'spring', stiffness: 420, damping: 34, mass: 0.85 }
+                  ? { duration: 0.12 }
+                  : { type: 'spring', stiffness: 380, damping: 28 }
               }
-            />
-          ) : null}
-          <motion.span
-            animate={{
-              scale: isActive ? 1.06 : 1,
-              opacity: isActive ? 1 : 0.88,
-            }}
-            transition={
-              reduceMotion
-                ? { duration: 0.12 }
-                : { type: 'spring', stiffness: 380, damping: 28 }
-            }
-            className="inline-flex"
-          >
-            <Icon className="size-[1.35rem] shrink-0" strokeWidth={2} />
-          </motion.span>
-          <span
-            aria-hidden
-            className={cn(
-              labelTransition,
-              labelsVisible
-                ? 'mt-0.5 max-h-6 opacity-100'
-                : 'mt-0 max-h-0 overflow-hidden opacity-0',
-            )}
-          >
-            {label}
-          </span>
-        </>
-      )}
+              className="inline-flex"
+            >
+              <Icon className="size-[1.35rem] shrink-0" strokeWidth={2} />
+            </motion.span>
+            <span
+              aria-hidden
+              className={cn(
+                labelTransition,
+                labelsVisible
+                  ? 'mt-0.5 max-h-6 opacity-100'
+                  : 'mt-0 max-h-0 overflow-hidden opacity-0',
+              )}
+            >
+              {label}
+            </span>
+          </>
+        )
+      }}
     </NavLink>
   )
 }
@@ -94,7 +100,11 @@ function DockLink({
  */
 export function NavBar(): ReactElement {
   const reduceMotion = useReducedMotion()
+  const location = useLocation()
   const { labelsVisible, expandNav } = useNavScroll()
+  const tripsPathActive =
+    location.pathname === '/app/trips' ||
+    location.pathname.startsWith('/app/trips/')
 
   return (
     <div
@@ -133,6 +143,14 @@ export function NavBar(): ReactElement {
           Icon={Lightbulb}
           labelsVisible={labelsVisible}
           reduceMotion={reduceMotion}
+        />
+        <DockLink
+          to="/app/trips"
+          label="Trips"
+          Icon={Plane}
+          labelsVisible={labelsVisible}
+          reduceMotion={reduceMotion}
+          forceActive={tripsPathActive}
         />
         <DockLink
           to="/app/settings"

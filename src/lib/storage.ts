@@ -1,4 +1,4 @@
-import type { Account, ConnectedAccountInfo, Transaction } from './domain'
+import type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
 
 export const KEYS = {
   accounts: 'budget-app:accounts',
@@ -23,19 +23,44 @@ export const KEYS = {
   budgetNotificationsEnabled: 'budget-app:budget-notifications-enabled',
   /** Last signed-in Google email on this device — used to detect account switch and clear local data */
   lastAuthEmail: 'budget-app:last-auth-email',
+  /** Named trips (allocation targets); JSON Trip[] — unused; trips live on the server. */
+  trips: 'budget-app:trips',
 } as const
+
+let serverMem: {
+  accounts: Account[] | null
+  transactions: Transaction[] | null
+  trips: Trip[] | null
+  monthlyBudgets: MonthlyBudgetsStoredV1 | null
+} = {
+  accounts: null,
+  transactions: null,
+  trips: null,
+  monthlyBudgets: null,
+}
 
 /** Fired when account visibility toggles or exclusions list is pruned */
 export const ACCOUNTS_EXCLUSIONS_CHANGED_EVENT = 'budget-app-accounts-exclusions-changed'
 
+/** Fired when the stored accounts list changes. */
+export const ACCOUNTS_CHANGED_EVENT = 'budget-app-accounts-changed'
+
 /** Fired after a successful bank transaction refresh (manual or background). */
 export const BANK_SYNC_COMPLETED_EVENT = 'budget-app-bank-sync-completed'
+
+/** Fired when a bank sync begins (manual or background). */
+export const BANK_SYNC_STARTED_EVENT = 'budget-app-bank-sync-started'
+
+/** Fired when a bank sync ends (manual or background). */
+export const BANK_SYNC_ENDED_EVENT = 'budget-app-bank-sync-ended'
 
 /** Fired when monthly budget settings are saved or cleared. */
 export const MONTHLY_BUDGETS_CHANGED_EVENT = 'budget-app-monthly-budgets-changed'
 
 /** Fired when the user clears the “already shown this month” budget toast flag. */
 export const BUDGET_ALERT_ACK_RESET_EVENT = 'budget-app-budget-alert-ack-reset'
+
+export const TRIPS_CHANGED_EVENT = 'budget-app-trips-changed'
 
 export type MonthlyBudgetsStoredV1 = {
   readonly v: 1
@@ -44,42 +69,25 @@ export type MonthlyBudgetsStoredV1 = {
   readonly totalMonthly: number | null
 }
 
-function isValidMonthlyBudgetsStored(x: unknown): x is MonthlyBudgetsStoredV1 {
-  if (!x || typeof x !== 'object') return false
-  const o = x as Record<string, unknown>
-  if (o.v !== 1) return false
-  if (
-    o.totalMonthly !== null &&
-    (typeof o.totalMonthly !== 'number' ||
-      !Number.isFinite(o.totalMonthly) ||
-      o.totalMonthly < 0)
-  ) {
-    return false
-  }
-  if (!o.categories || typeof o.categories !== 'object' || Array.isArray(o.categories)) {
-    return false
-  }
-  for (const v of Object.values(o.categories as Record<string, unknown>)) {
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false
-  }
-  return true
-}
-
 export function getMonthlyBudgetsStored(): MonthlyBudgetsStoredV1 {
-  const data = readJson(KEYS.monthlyBudgets)
-  if (!isValidMonthlyBudgetsStored(data)) {
-    return { v: 1, categories: {}, totalMonthly: null }
-  }
-  return data
+  return serverMem.monthlyBudgets ?? { v: 1, categories: {}, totalMonthly: null }
 }
 
 function dispatchMonthlyBudgetsChanged(): void {
   window.dispatchEvent(new CustomEvent(MONTHLY_BUDGETS_CHANGED_EVENT))
 }
 
-export function saveMonthlyBudgets(next: MonthlyBudgetsStoredV1): void {
-  writeJson(KEYS.monthlyBudgets, next)
+export function saveMonthlyBudgets(
+  next: MonthlyBudgetsStoredV1,
+  opts?: { readonly skipRemote?: boolean },
+): void {
+  serverMem.monthlyBudgets = next
   dispatchMonthlyBudgetsChanged()
+  if (opts?.skipRemote !== true) {
+    void import('@/lib/serverData').then(({ putBudgetsToServer }) =>
+      putBudgetsToServer(next),
+    )
+  }
 }
 
 function dispatchAccountsExclusionsChanged(): void {
@@ -132,86 +140,31 @@ function writeJson<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-function isValidEnrollment(x: unknown): x is StoredEnrollment {
-  if (!x || typeof x !== 'object') return false
-  const o = x as Record<string, unknown>
-  return (
-    typeof o.enrollmentId === 'string' &&
-    typeof o.accessToken === 'string' &&
-    typeof o.institutionName === 'string'
-  )
-}
-
-/** Reads enrollments; migrates legacy single `access-token` once if needed. */
+/** Teller tokens live on the server; always empty locally. */
 export function getEnrollments(): StoredEnrollment[] {
-  const legacy = localStorage.getItem(KEYS.accessToken)
-  const data = readJson(KEYS.enrollments)
-  let list: StoredEnrollment[] = Array.isArray(data)
-    ? data.filter(isValidEnrollment)
-    : []
-  if (list.length === 0 && legacy && legacy.trim()) {
-    list = [
-      {
-        enrollmentId: 'legacy',
-        accessToken: legacy.trim(),
-        institutionName: 'Connected account',
-      },
-    ]
-    saveEnrollments(list)
-    localStorage.removeItem(KEYS.accessToken)
-  }
-  return list
+  return []
 }
 
-export function saveEnrollments(list: StoredEnrollment[]): void {
-  writeJson(KEYS.enrollments, list)
-}
+export function saveEnrollments(_list: StoredEnrollment[]): void {}
 
-export function upsertEnrollment(entry: StoredEnrollment): void {
-  const list = getEnrollments().filter((e) => e.enrollmentId !== entry.enrollmentId)
-  list.push(entry)
-  saveEnrollments(list)
-}
+export function upsertEnrollment(_entry: StoredEnrollment): void {}
 
-export function removeEnrollment(enrollmentId: string): void {
-  saveEnrollments(
-    getEnrollments().filter((e) => e.enrollmentId !== enrollmentId),
-  )
-}
+export function removeEnrollment(_enrollmentId: string): void {}
 
 export function saveAccounts(accounts: Account[]): void {
-  writeJson(KEYS.accounts, accounts)
+  serverMem.accounts = accounts
   if (pruneExcludedAccountIds(new Set(accounts.map((a) => a.id)))) {
     dispatchAccountsExclusionsChanged()
   }
-}
-
-function normalizeStoredAccount(raw: unknown): Account | null {
-  if (!raw || typeof raw !== 'object') return null
-  const r = raw as Record<string, unknown>
-  const id = typeof r.id === 'string' ? r.id : null
-  const name = typeof r.name === 'string' ? r.name : null
-  if (!id || !name) return null
-  const enrollmentId =
-    typeof r.enrollmentId === 'string' ? r.enrollmentId : 'legacy'
-  let institution: { name: string } | undefined
-  if (r.institution && typeof r.institution === 'object' && r.institution !== null) {
-    const ins = r.institution as Record<string, unknown>
-    if (typeof ins.name === 'string') institution = { name: ins.name }
+  try {
+    window.dispatchEvent(new CustomEvent(ACCOUNTS_CHANGED_EVENT))
+  } catch {
+    /* ignore */
   }
-  const base: Account = institution
-    ? { id, name, enrollmentId, institution }
-    : { id, name, enrollmentId }
-  return base
 }
 
 export function getAccounts(): Account[] | null {
-  const data = readJson(KEYS.accounts)
-  if (!Array.isArray(data)) return null
-  const out = data
-    .map(normalizeStoredAccount)
-    .filter((a): a is Account => a !== null)
-  return out.length > 0 ? out : null
+  return serverMem.accounts
 }
 
 export function hasSeenLanding(): boolean {
@@ -223,12 +176,30 @@ export function markLandingAsSeen(): void {
 }
 
 export function saveTransactions(transactions: Transaction[]): void {
-  writeJson(KEYS.transactions, transactions)
+  serverMem.transactions = transactions
+  window.dispatchEvent(new CustomEvent(BANK_SYNC_COMPLETED_EVENT))
 }
 
 export function getTransactions(): Transaction[] | null {
-  const data = readJson(KEYS.transactions)
-  return Array.isArray(data) ? (data as Transaction[]) : null
+  const m = serverMem.transactions
+  return m !== null ? m : null
+}
+
+export function getTrips(): Trip[] {
+  return serverMem.trips ?? []
+}
+
+function dispatchTripsChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(TRIPS_CHANGED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function saveTrips(trips: Trip[]): void {
+  serverMem.trips = trips
+  dispatchTripsChanged()
 }
 
 /** @deprecated Use getEnrollments */
@@ -262,7 +233,7 @@ export function getConnectedAccountSummary(): ConnectedAccountInfo | null {
 }
 
 export function clearTransactions(): void {
-  localStorage.removeItem(KEYS.transactions)
+  serverMem.transactions = null
   localStorage.removeItem(KEYS.lastBankSyncAt)
 }
 
@@ -283,7 +254,6 @@ export function recordSuccessfulBankTransactionFetch(): void {
  * True if user has a linked bank (enrollment or non-demo accounts), so background sync is meaningful.
  */
 export function hasLinkedBankAccountsForSync(): boolean {
-  if (getEnrollments().length > 0) return true
   const accounts = getAccounts()
   if (!accounts?.length) return false
   return accounts.some((a) => a.enrollmentId !== 'demo' && a.id !== 'demo-acct')
@@ -323,4 +293,6 @@ export function clearAll(): void {
   localStorage.removeItem(KEYS.budgetAlertShownMonth)
   localStorage.removeItem(KEYS.budgetNotificationsEnabled)
   localStorage.removeItem(KEYS.lastAuthEmail)
+  localStorage.removeItem(KEYS.trips)
+  serverMem = { accounts: null, transactions: null, trips: null, monthlyBudgets: null }
 }

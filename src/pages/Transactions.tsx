@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Calendar, Plane } from 'lucide-react'
 import { CATEGORIES } from '../constants/categories'
 import { ErrorRetry } from '../components/ErrorRetry'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -10,10 +11,12 @@ import {
   formatTransactionAccountLabel,
   getCategoryLabel,
   getCategoryPillColor,
+  isDeferredOutOfViewMonth,
   loadTransactionsFromCacheOrFetch,
   persistCategoryOverride,
   refreshTransactionsFromBackend,
   resolveDisplayCategory,
+  tripsMapFromList,
   type Transaction,
 } from '../lib/api'
 import {
@@ -23,11 +26,12 @@ import {
   transactionMatchesDatePreset,
 } from '../lib/transactionGrouping'
 import * as storage from '../lib/storage'
-import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
+import { TransactionAllocateSheet } from '@/components/TransactionAllocateSheet'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
+import { cn } from '@/lib/utils'
 import './Page.css'
 import './Transactions.css'
 
@@ -63,6 +67,14 @@ type VisibleRow =
 function virtualItemKeyForRow(row: VisibleRow): string {
   if (row.type === 'month') return `m:${row.monthKey}`
   return `t:${txRowKey(row.tx)}`
+}
+
+function formatShortCalendarDay(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`)
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(d)
 }
 
 function IconChevron({ expanded }: { readonly expanded: boolean }): ReactElement {
@@ -113,6 +125,18 @@ export function Transactions(): ReactElement {
   const [customDateFrom, setCustomDateFrom] = useState('')
   const [customDateTo, setCustomDateTo] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [syncHint, setSyncHint] = useState<'full' | 'refresh' | null>(null)
+  const [syncProgress, setSyncProgress] = useState<{
+    done: number
+    total: number
+    phase:
+      | 'rehydrate'
+      | 'accounts'
+      | 'account_transactions'
+      | 'server_merge'
+      | 'finalize'
+    accountName?: string
+  } | null>(null)
   const [openPickerKey, setOpenPickerKey] = useState<string | null>(null)
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
     () => new Set(),
@@ -124,6 +148,9 @@ export function Transactions(): ReactElement {
     Record<string, string>
   >(() => storage.getCategoryOverrides())
   const [exclusionRev, setExclusionRev] = useState(0)
+  const [tripsRev, setTripsRev] = useState(0)
+  const [sheetTx, setSheetTx] = useState<Transaction | null>(null)
+  const [sheetPanel, setSheetPanel] = useState<'menu' | 'defer' | 'trip'>('menu')
 
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
@@ -153,12 +180,30 @@ export function Transactions(): ReactElement {
   }, [doInitialLoad])
 
   useEffect(() => {
+    const onStart = (): void => setSyncing(true)
+    const onEnd = (): void => setSyncing(false)
+    window.addEventListener(storage.BANK_SYNC_STARTED_EVENT, onStart)
+    window.addEventListener(storage.BANK_SYNC_ENDED_EVENT, onEnd)
+    return () => {
+      window.removeEventListener(storage.BANK_SYNC_STARTED_EVENT, onStart)
+      window.removeEventListener(storage.BANK_SYNC_ENDED_EVENT, onEnd)
+    }
+  }, [])
+
+  useEffect(() => {
     const on = (): void => {
       setExclusionRev((n) => n + 1)
     }
     window.addEventListener(storage.ACCOUNTS_EXCLUSIONS_CHANGED_EVENT, on)
     return () =>
       window.removeEventListener(storage.ACCOUNTS_EXCLUSIONS_CHANGED_EVENT, on)
+  }, [])
+
+  useEffect(() => {
+    const on = (): void => setTripsRev((n) => n + 1)
+    window.addEventListener(storage.TRIPS_CHANGED_EVENT, on)
+    return () =>
+      window.removeEventListener(storage.TRIPS_CHANGED_EVENT, on)
   }, [])
 
   useEffect(() => {
@@ -184,11 +229,21 @@ export function Transactions(): ReactElement {
 
   const doSync = useCallback(async () => {
     setSyncing(true)
+    setSyncHint(storage.getLastBankSyncAt() === null ? 'full' : 'refresh')
+    setSyncProgress({ done: 0, total: 1, phase: 'rehydrate' })
     setError(null)
     setFailedOp(null)
     try {
       const next = await refreshTransactionsFromBackend({
         throwOnFailure: true,
+        onProgress: (p) => {
+          setSyncProgress({
+            done: p.done,
+            total: p.total,
+            phase: p.phase,
+            accountName: p.accountName,
+          })
+        },
       })
       setRows(next)
       setCategoryOverrides({ ...storage.getCategoryOverrides() })
@@ -199,6 +254,8 @@ export function Transactions(): ReactElement {
       setFailedOp('sync')
     } finally {
       setSyncing(false)
+      setSyncHint(null)
+      setSyncProgress(null)
     }
   }, [])
 
@@ -320,6 +377,16 @@ export function Transactions(): ReactElement {
 
   const accountsForTable = storage.getAccounts() ?? []
 
+  const tripsById = useMemo(
+    () => tripsMapFromList(storage.getTrips()),
+    [tripsRev],
+  )
+
+  const showDeferredChrome = datePreset === 'this_month'
+  const viewNow = new Date()
+  const viewYear = viewNow.getFullYear()
+  const viewMonth = viewNow.getMonth() + 1
+
   function pickCategory(txId: string, categoryId: string): void {
     persistCategoryOverride(txId, categoryId)
     setCategoryOverrides({ ...storage.getCategoryOverrides() })
@@ -365,7 +432,6 @@ export function Transactions(): ReactElement {
         <div className="tx-screen-head">
           <h1 className="page__title">Transactions</h1>
           <div className="tx-screen-head__trailing">
-            <DriveSyncIndicator variant="header" />
             <Button
               type="button"
               className="tx-sync-btn"
@@ -377,6 +443,50 @@ export function Transactions(): ReactElement {
             </Button>
           </div>
         </div>
+        {syncing ? (
+          <p className="tx-sync-status" role="status">
+            {syncProgress?.phase === 'server_merge'
+              ? 'Merging transactions…'
+              : syncProgress?.phase === 'finalize'
+                ? 'Finalizing…'
+                : syncHint === 'full'
+                  ? 'No quick sync data yet — performing a full sync. This can take a bit.'
+                  : 'Syncing latest transactions…'}{' '}
+            {syncProgress && syncProgress.total > 0 ? (
+              <span className="tx-sync-status__detail">
+                {syncProgress.phase === 'account_transactions' &&
+                syncProgress.accountName
+                  ? `(${Math.min(syncProgress.total, syncProgress.done + 1)} of ${syncProgress.total} • ${syncProgress.accountName})`
+                  : `(${Math.min(syncProgress.total, syncProgress.done)} of ${syncProgress.total})`}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {syncing && syncProgress ? (
+          <div
+            className="tx-sync-progress"
+            role="progressbar"
+            aria-label="Bank sync progress"
+            aria-valuemin={0}
+            aria-valuemax={syncProgress.total}
+            aria-valuenow={Math.min(syncProgress.total, syncProgress.done)}
+          >
+            <div
+              className="tx-sync-progress__bar"
+              style={{
+                width: `${Math.max(
+                  6,
+                  Math.min(
+                    100,
+                    (Math.min(syncProgress.total, syncProgress.done) /
+                      Math.max(1, syncProgress.total)) *
+                      100,
+                  ),
+                )}%`,
+              }}
+            />
+          </div>
+        ) : null}
 
         <div className="tx-toolbar">
           <label className="tx-toolbar__field">
@@ -512,7 +622,7 @@ export function Transactions(): ReactElement {
         {filteredRows.length > 0 && !bootstrapLoading ? (
           <div className="tx-accordion-wrap">
             <p className="tx-accordion-hint">
-              Expand a month, then tap a row for account and category.
+              Expand a row for account, category, and allocation.
             </p>
             <div
               className="tx-virtual-anchor"
@@ -563,6 +673,31 @@ export function Transactions(): ReactElement {
                 )
                 const pillColor = getCategoryPillColor(effectiveId)
                 const pickerOpen = openPickerKey === rowKey
+                const deferred =
+                  showDeferredChrome &&
+                  isDeferredOutOfViewMonth(tx, tripsById, viewYear, viewMonth)
+                const trip = tx.tripId != null ? tripsById.get(tx.tripId) : undefined
+                let allocChip: ReactElement | null = null
+                if (trip) {
+                  const tn =
+                    trip.name.length > 16
+                      ? `${trip.name.slice(0, 15)}…`
+                      : trip.name
+                  allocChip = (
+                    <span className="tx-alloc-chip tx-alloc-chip--trip" title={trip.name}>
+                      <span aria-hidden>✈</span> {tn}
+                    </span>
+                  )
+                } else if (
+                  typeof tx.effectiveDate === 'string' &&
+                  tx.effectiveDate.length >= 10
+                ) {
+                  allocChip = (
+                    <span className="tx-alloc-chip tx-alloc-chip--defer">
+                      → {formatShortCalendarDay(tx.effectiveDate)}
+                    </span>
+                  )
+                }
 
                 return (
                   <div
@@ -581,30 +716,47 @@ export function Transactions(): ReactElement {
                     <div className="tx-acc__virtual-item">
                       <div
                         role="listitem"
-                        className={
+                        className={cn(
                           pickerOpen
                             ? 'tx-acc__item tx-acc__item--picker-open'
-                            : 'tx-acc__item'
-                        }
+                            : 'tx-acc__item',
+                          deferred && 'tx-acc__item--deferred',
+                        )}
                         style={{
                           boxShadow: `inset 3px 0 0 ${categoryAccentRgba(pillColor, 0.35)}`,
                         }}
                       >
-                        <button
-                          type="button"
-                          className="tx-acc__header"
-                          aria-expanded={expanded}
-                          aria-controls={panelId}
-                          id={triggerId}
-                          onClick={() => toggleExpanded(rowKey)}
-                        >
-                          <IconChevron expanded={expanded} />
-                          <span className="tx-acc__date">{tx.date}</span>
-                          <span className="tx-acc__desc">{tx.description}</span>
-                          <span className={amountClass(tx.amount)}>
-                            {formatCurrencyAmount(displayAmount(tx.amount))}
-                          </span>
-                        </button>
+                        <div className="tx-acc__header-row">
+                          <button
+                            type="button"
+                            className="tx-acc__chevron-hit"
+                            aria-expanded={expanded}
+                            aria-controls={panelId}
+                            id={triggerId}
+                            onClick={() => toggleExpanded(rowKey)}
+                          >
+                            <IconChevron expanded={expanded} />
+                          </button>
+                          <button
+                            type="button"
+                            className="tx-acc__main"
+                            onClick={() => toggleExpanded(rowKey)}
+                          >
+                            <span className="tx-acc__date">{tx.date}</span>
+                            <span className="tx-acc__desc">{tx.description}</span>
+                            <span
+                              className={cn(
+                                amountClass(tx.amount),
+                                deferred && 'tx-acc__amount--deferred',
+                              )}
+                            >
+                              {formatCurrencyAmount(displayAmount(tx.amount))}
+                            </span>
+                            {allocChip ? (
+                              <span className="tx-acc__meta-row">{allocChip}</span>
+                            ) : null}
+                          </button>
+                        </div>
                         <div
                           className={
                             expanded
@@ -677,6 +829,50 @@ export function Transactions(): ReactElement {
                                   ) : null}
                                 </div>
                               </div>
+                              <div className="tx-acc__row">
+                                <span className="tx-acc__label">Allocation</span>
+                                <span className="tx-acc__value">
+                                  <span className="tx-acc__alloc">
+                                    <span className="tx-acc__alloc-actions">
+                                      <button
+                                        type="button"
+                                        className="tx-acc__link"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setSheetPanel('defer')
+                                          setSheetTx(tx)
+                                        }}
+                                      >
+                                        <Calendar
+                                          className="mr-2 inline-block size-4 align-[-2px] text-muted-foreground"
+                                          aria-hidden
+                                        />
+                                        Defer to date
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="tx-acc__link"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setSheetPanel('trip')
+                                          setSheetTx(tx)
+                                        }}
+                                      >
+                                        <Plane
+                                          className="mr-2 inline-block size-4 align-[-2px] text-muted-foreground"
+                                          aria-hidden
+                                        />
+                                        Add to trip
+                                      </button>
+                                    </span>
+                                    {allocChip ? (
+                                      <span className="tx-acc__alloc-chip-row">
+                                        {allocChip}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -689,6 +885,17 @@ export function Transactions(): ReactElement {
           </div>
         ) : null}
       </div>
+
+      <TransactionAllocateSheet
+        tx={sheetTx}
+        open={sheetTx !== null}
+        initialPanel={sheetPanel}
+        onClose={() => setSheetTx(null)}
+        onApplied={() => {
+          setRows(storage.getTransactions() ?? [])
+          setCategoryOverrides({ ...storage.getCategoryOverrides() })
+        }}
+      />
     </main>
   )
 }

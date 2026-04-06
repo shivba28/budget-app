@@ -1,6 +1,5 @@
 import { createPasskeyCredential, signInWithPasskey } from '@/lib/webauthnClient'
 import {
-  setAuthToken,
   webAuthnAuthenticateStart,
   webAuthnAuthenticateVerify,
   webAuthnRegisterStart,
@@ -18,6 +17,5 @@ export async function registerPasskeyFlow(deviceLabel?: string): Promise<void> {
 export async function unlockWithPasskeyFlow(): Promise<void> {
   const options = await webAuthnAuthenticateStart()
   const credential = await signInWithPasskey(options)
-  const result = await webAuthnAuthenticateVerify(credential)
-  setAuthToken(result.token)
+  await webAuthnAuthenticateVerify(credential)
 }

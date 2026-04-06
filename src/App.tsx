@@ -12,7 +12,11 @@ import { UnlockPinPage } from './pages/UnlockPinPage'
 import { Insights } from './pages/Insights'
 import { Landing } from './pages/Landing'
 import { Settings } from './pages/Settings'
+import { TripDetail } from './pages/TripDetail'
 import { Transactions } from './pages/Transactions'
+import { Trips } from './pages/Trips'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 
 function RootEntry(): ReactElement {
   const { status } = useAuth()
@@ -41,6 +45,8 @@ export default function App(): ReactElement {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Analytics />
+        <SpeedInsights />
         <BudgetAlertHost />
         <Routes>
           <Route path="/" element={<RootEntry />} />
@@ -56,6 +62,8 @@ export default function App(): ReactElement {
               />
               <Route path="transactions" element={<Transactions />} />
               <Route path="insights" element={<Insights />} />
+              <Route path="trips" element={<Trips />} />
+              <Route path="trips/:tripId" element={<TripDetail />} />
               <Route
                 path="summary"
                 element={<Navigate to="/app/insights" replace />}

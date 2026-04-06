@@ -2,6 +2,7 @@
 export const MAIN_APP_TAB_PATHS = [
   '/app/transactions',
   '/app/insights',
+  '/app/trips',
   '/app/settings',
 ] as const
 
@@ -16,6 +17,9 @@ export function normalizeAppPathname(pathname: string): string {
 /** Index in {@link MAIN_APP_TAB_PATHS}, or `-1` if not a main tab. */
 export function mainTabIndex(pathname: string): number {
   const p = normalizeAppPathname(pathname)
+  if (p === '/app/trips' || p.startsWith('/app/trips/')) {
+    return MAIN_APP_TAB_PATHS.indexOf('/app/trips')
+  }
   return MAIN_APP_TAB_PATHS.indexOf(p as MainAppTabPath)
 }
 

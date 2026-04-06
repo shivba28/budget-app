@@ -47,7 +47,7 @@
   justify-content: flex-end;
 }
 
-/* Insights (with data): title + Drive pill on row 1; month nav centered on row 2 */
+/* Insights (with data): title row 1; month nav centered on row 2 */
 .summary-head--insights {
   flex-direction: column;
   align-items: stretch;

@@ -11,22 +11,18 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
-import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
-import { collectLocalBackup } from '@/lib/cloudBackup/collect'
-import { recordDriveSyncFailure, recordDriveSyncSuccess } from '@/lib/cloudBackup/driveSyncStatus'
-import { setStoredCloudBackupEnvelopeAt } from '@/lib/cloudBackup/envelopeAt'
 import { registerPasskeyFlow } from '@/lib/passkeyFlow'
 import {
   clearBudgetAlertShownMonth,
   getNotificationsEnabled,
   requestNotificationPermission,
+  sendTestBrowserNotification,
   setNotificationsEnabled,
 } from '@/lib/budget'
 import * as storage from '../lib/storage'
 import {
   changePinRequest,
   logoutSync,
-  pushBackupToServer,
   startGoogleSignIn,
   webAuthnDeleteCredential,
   webAuthnListCredentials,
@@ -34,6 +30,7 @@ import {
 } from '@/lib/syncApi'
 import { webAuthnSupported } from '@/lib/webauthnClient'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import {
   disconnectEnrollment,
   formatCurrencyAmount,
@@ -47,7 +44,7 @@ import './Settings.css'
 
 type FailedOp = 'connect' | 'sync' | 'disconnect' | null
 
-type SettingsTab = 'drive' | 'banks' | 'budgets'
+type SettingsTab = 'account' | 'banks' | 'budgets'
 
 type BudgetFormState = {
   readonly categoryInputs: Record<string, string>
@@ -126,9 +123,8 @@ const PIN4 = /^\d{4}$/
 export function Settings(): ReactElement {
   const navigate = useNavigate()
   const { email, lastSyncMessage, clearSyncMessage, hasPin, refresh } = useAuth()
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('drive')
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
   const [accountUiTick, setAccountUiTick] = useState(0)
-  const [syncBusy, setSyncBusy] = useState(false)
   const [accountError, setAccountError] = useState<string | null>(null)
   const [curPin, setCurPin] = useState('')
   const [newPin, setNewPin] = useState('')
@@ -139,11 +135,12 @@ export function Settings(): ReactElement {
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
   const [budgetForm, setBudgetForm] = useState<BudgetFormState>(budgetFormFromStorage)
   const [budgetSaveError, setBudgetSaveError] = useState<string | null>(null)
+  const [budgetToast, setBudgetToast] = useState<string | null>(null)
   const [budgetNotifEnabled, setBudgetNotifEnabled] = useState(() =>
     getNotificationsEnabled(),
   )
   const [budgetNotifDeniedHint, setBudgetNotifDeniedHint] = useState(false)
-
+  const budgetToastTimerRef = useRef<number | null>(null)
   const [accounts, setAccounts] = useState<Account[]>(() => loadLinkedAccounts())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -159,6 +156,12 @@ export function Settings(): ReactElement {
 
   useEffect(() => {
     setAccounts(loadLinkedAccounts())
+  }, [])
+
+  useEffect(() => {
+    const on = (): void => setAccounts(loadLinkedAccounts())
+    window.addEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
+    return () => window.removeEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
   }, [])
 
   const loadPasskeys = useCallback(async () => {
@@ -273,23 +276,6 @@ export function Settings(): ReactElement {
     [accountUiTick, accounts],
   )
 
-  async function onDriveSyncNow(): Promise<void> {
-    setAccountError(null)
-    setSyncBusy(true)
-    try {
-      const payload = await collectLocalBackup()
-      await pushBackupToServer(payload)
-      setStoredCloudBackupEnvelopeAt(payload.updatedAt)
-      recordDriveSyncSuccess()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Sync failed'
-      setAccountError(msg)
-      recordDriveSyncFailure(msg)
-    } finally {
-      setSyncBusy(false)
-    }
-  }
-
   async function onCloudSignOut(): Promise<void> {
     await logoutSync()
     clearSyncMessage()
@@ -374,6 +360,9 @@ export function Settings(): ReactElement {
       totalMonthly = r
     }
     storage.saveMonthlyBudgets({ v: 1, categories: built.categories, totalMonthly })
+    setBudgetToast('Budget saved')
+    if (budgetToastTimerRef.current !== null) window.clearTimeout(budgetToastTimerRef.current)
+    budgetToastTimerRef.current = window.setTimeout(() => setBudgetToast(null), 2500)
   }
 
   function onToggleOverallMonthlyCap(checked: boolean): void {
@@ -395,6 +384,9 @@ export function Settings(): ReactElement {
     setBudgetSaveError(null)
     storage.saveMonthlyBudgets({ v: 1, categories: {}, totalMonthly: null })
     setBudgetForm(budgetFormFromStorage())
+    setBudgetToast('Budget reset')
+    if (budgetToastTimerRef.current !== null) window.clearTimeout(budgetToastTimerRef.current)
+    budgetToastTimerRef.current = window.setTimeout(() => setBudgetToast(null), 2500)
   }
 
   return (
@@ -407,17 +399,17 @@ export function Settings(): ReactElement {
         <button
           type="button"
           role="tab"
-          id="settings-tab-drive"
-          aria-selected={settingsTab === 'drive'}
-          aria-controls="settings-panel-drive"
+          id="settings-tab-account"
+          aria-selected={settingsTab === 'account'}
+          aria-controls="settings-panel-account"
           className={
-            settingsTab === 'drive'
+            settingsTab === 'account'
               ? 'settings-tab settings-tab--active'
               : 'settings-tab'
           }
-          onClick={() => setSettingsTab('drive')}
+          onClick={() => setSettingsTab('account')}
         >
-          Google Drive &amp; passkeys
+          Account
         </button>
         <button
           type="button"
@@ -452,27 +444,28 @@ export function Settings(): ReactElement {
       </div>
 
       <div ref={settingsScrollRef} className="settings-scroll">
-      {settingsTab === 'drive' ? (
+      {settingsTab === 'account' ? (
         <section
-          id="settings-panel-drive"
+          id="settings-panel-account"
           role="tabpanel"
-          aria-labelledby="settings-tab-drive"
+          aria-labelledby="settings-tab-account"
           className="settings-block settings-panel"
         >
-          <h2 className="page__subtitle">Account &amp; Google Drive</h2>
+          <h2 className="page__subtitle">Account &amp; security</h2>
           <Card className="shadow-xs">
             <CardContent className="flex flex-col gap-4 py-4">
               <p className="text-sm text-muted-foreground">
                 Signed in as{' '}
                 <strong className="text-foreground">{email ?? '—'}</strong>
               </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Transactions, accounts, categories, monthly budgets, and UI state sync to your
-                Drive
-                app data folder. Bank link tokens are not uploaded—connect your bank
-                again on each device you trust.
+              <p className="text-xs text-muted-foreground">
+                Data: <Badge variant="secondary">Cloud database</Badge>
               </p>
-              <DriveSyncIndicator variant="full" />
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Accounts, transactions, trips, and budgets are tied to your Google sign-in and
+                stored on the server so you can use this app on multiple devices. Bank link tokens
+                stay on the server; connect Teller again on each new browser if needed.
+              </p>
               {lastSyncMessage ? (
                 <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                   {lastSyncMessage}{' '}
@@ -489,14 +482,6 @@ export function Settings(): ReactElement {
                 <p className="text-sm text-destructive">{accountError}</p>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={syncBusy}
-                  onClick={() => void onDriveSyncNow()}
-                >
-                  {syncBusy ? 'Syncing…' : 'Sync now'}
-                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -753,12 +738,20 @@ export function Settings(): ReactElement {
           <h2 className="page__subtitle">Monthly budgets</h2>
           <p className="text-sm text-muted-foreground mb-4 max-w-xl">
             These caps drive the Budget health section on Insights. Leave a category blank to
-            use the built-in default. Sync saves this with your other app data in Google Drive.
+            use the built-in default. Saving updates your budgets in the cloud.
           </p>
           <Card className="shadow-xs">
             <CardContent className="flex flex-col gap-4 py-4">
               {budgetSaveError ? (
                 <p className="text-sm text-destructive">{budgetSaveError}</p>
+              ) : null}
+              {budgetToast ? (
+                <p
+                  role="status"
+                  className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+                >
+                  {budgetToast}
+                </p>
               ) : null}
               <ul className="flex flex-col gap-3">
                 {CATEGORIES.map((c) => (
@@ -836,6 +829,7 @@ export function Settings(): ReactElement {
                       }
                       setBudgetNotifEnabled(true)
                       setNotificationsEnabled(true)
+                      sendTestBrowserNotification()
                     }}
                   />
                   <span>Enable budget notifications</span>

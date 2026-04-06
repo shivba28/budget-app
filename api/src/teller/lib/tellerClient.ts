@@ -234,6 +234,20 @@ async function proxyGet(pathname: string, token: string): Promise<Json> {
   }
 }
 
+function withQuery(
+  pathname: string,
+  query: Record<string, string | number | null | undefined>,
+): string {
+  const entries = Object.entries(query).filter(
+    ([, v]) => v !== null && v !== undefined && String(v) !== '',
+  )
+  if (entries.length === 0) return pathname
+  const qs = entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&')
+  return pathname.includes('?') ? `${pathname}&${qs}` : `${pathname}?${qs}`
+}
+
 function unwrapAccountList(data: unknown): unknown[] {
   if (Array.isArray(data)) return data
   if (data && typeof data === 'object' && 'accounts' in data) {
@@ -243,16 +257,27 @@ function unwrapAccountList(data: unknown): unknown[] {
   return []
 }
 
+function enrollmentTokenMap(
+  override: Map<string, string> | null | undefined,
+): Map<string, string> {
+  return override ?? sessionTokens
+}
+
 /**
  * Fetches accounts from every stored enrollment, tags each with `enrollment_id`,
  * and rebuilds accountId → enrollment routing for GET /transactions.
+ * @param enrollmentTokens — when set (e.g. from Postgres per user), use instead of in-memory session tokens.
  */
-export async function getAccountsAggregated(): Promise<Json> {
+export async function getAccountsAggregated(
+  enrollmentTokens?: Map<string, string> | null,
+): Promise<Json> {
   await ensureTellerProxyRunning()
   accountToEnrollment.clear()
   const merged: unknown[] = []
+  const seenAccountIds = new Set<string>()
+  const tokenMap = enrollmentTokenMap(enrollmentTokens ?? null)
 
-  for (const [enrollmentId, tok] of sessionTokens) {
+  for (const [enrollmentId, tok] of tokenMap) {
     try {
       const data = await proxyGet('/api/accounts', tok)
       const rawList = unwrapAccountList(data)
@@ -260,7 +285,10 @@ export async function getAccountsAggregated(): Promise<Json> {
         if (!raw || typeof raw !== 'object') continue
         const r = raw as Record<string, unknown>
         const id = typeof r.id === 'string' ? r.id : null
-        if (id) accountToEnrollment.set(id, enrollmentId)
+        if (!id) continue
+        if (seenAccountIds.has(id)) continue
+        seenAccountIds.add(id)
+        if (!accountToEnrollment.has(id)) accountToEnrollment.set(id, enrollmentId)
         merged.push({ ...r, enrollment_id: enrollmentId })
       }
     } catch (error) {
@@ -279,7 +307,10 @@ export async function getAccountsAggregated(): Promise<Json> {
         if (!raw || typeof raw !== 'object') continue
         const r = raw as Record<string, unknown>
         const id = typeof r.id === 'string' ? r.id : null
-        if (id) accountToEnrollment.set(id, 'env')
+        if (!id) continue
+        if (seenAccountIds.has(id)) continue
+        seenAccountIds.add(id)
+        if (!accountToEnrollment.has(id)) accountToEnrollment.set(id, 'env')
         merged.push({ ...r, enrollment_id: 'env' })
       }
     } catch (error) {
@@ -295,26 +326,32 @@ export async function getAccountsAggregated(): Promise<Json> {
 export async function getTransactionsForAccount(
   accountId: string,
   enrollmentId?: string | null,
+  enrollmentTokens?: Map<string, string> | null,
+  opts?: { count?: number; from_id?: string | null } | null,
 ): Promise<Json> {
   await ensureTellerProxyRunning()
+  const tokenMap = enrollmentTokenMap(enrollmentTokens ?? null)
 
   const tryToken = (tok: string) =>
     proxyGet(
-      `/api/accounts/${encodeURIComponent(accountId)}/transactions`,
+      withQuery(`/api/accounts/${encodeURIComponent(accountId)}/transactions`, {
+        count: opts?.count,
+        from_id: opts?.from_id ?? null,
+      }),
       tok,
     )
 
   const tried = new Set<string>()
   const tryOrder: string[] = []
 
-  if (enrollmentId && sessionTokens.has(enrollmentId)) {
-    tryOrder.push(sessionTokens.get(enrollmentId)!)
+  if (enrollmentId && tokenMap.has(enrollmentId)) {
+    tryOrder.push(tokenMap.get(enrollmentId)!)
   }
   const fromAcc = accountToEnrollment.get(accountId)
-  if (fromAcc && sessionTokens.has(fromAcc)) {
-    tryOrder.push(sessionTokens.get(fromAcc)!)
+  if (fromAcc && tokenMap.has(fromAcc)) {
+    tryOrder.push(tokenMap.get(fromAcc)!)
   }
-  for (const tok of sessionTokens.values()) tryOrder.push(tok)
+  for (const tok of tokenMap.values()) tryOrder.push(tok)
 
   const envTok = normalizeTellerAccessToken(process.env.TELLER_ACCESS_TOKEN)
   if (envTok) tryOrder.push(envTok)

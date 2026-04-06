@@ -59,7 +59,11 @@ export function useSwipeNavigation(
 
       const p = normalizeAppPathname(pathname)
       const order = pathsRef.current
-      const idx = order.indexOf(p)
+      const swipePath =
+        p === '/app/trips' || p.startsWith('/app/trips/')
+          ? '/app/trips'
+          : p
+      const idx = order.indexOf(swipePath)
       if (idx < 0) return
 
       if (dx < 0) {

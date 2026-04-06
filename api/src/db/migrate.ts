@@ -1,0 +1,93 @@
+import { dbEnabled, pool, query } from './pool.js'
+
+const STATEMENTS = `
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS teller_enrollments (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  enrollment_id TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  institution_name TEXT,
+  PRIMARY KEY (user_id, enrollment_id)
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT,
+  institution TEXT,
+  type TEXT,
+  enrollment_id TEXT,
+  last_seen_tx_id TEXT,
+  last_synced TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS trips (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE,
+  budget_limit NUMERIC,
+  color TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  date DATE NOT NULL,
+  effective_date DATE,
+  trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+  amount NUMERIC,
+  description TEXT,
+  category TEXT,
+  detail_category TEXT,
+  pending BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, id),
+  FOREIGN KEY (user_id, account_id) REFERENCES accounts(user_id, id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS budgets (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  month TEXT NOT NULL,
+  UNIQUE(user_id, category, month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions (user_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_account ON transactions (user_id, account_id);
+CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts (user_id);
+CREATE INDEX IF NOT EXISTS idx_trips_user ON trips (user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_trips_user_name_start ON trips (user_id, name, start_date);
+
+ALTER TABLE accounts
+  ADD COLUMN IF NOT EXISTS last_seen_tx_id TEXT;
+`
+
+let migrated = false
+
+export async function runMigrationsIfNeeded(): Promise<void> {
+  if (!dbEnabled() || !pool || migrated) return
+  const parts = STATEMENTS.split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  for (const sql of parts) {
+    await query(`${sql};`)
+  }
+  migrated = true
+  console.log('[db] Migrations applied (if not already present).')
+}

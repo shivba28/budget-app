@@ -4,9 +4,10 @@ import cors from 'cors'
 import express from 'express'
 import { applyAuthRoutes } from './routes/auth/routes.js'
 import { applyWebAuthnRoutes } from './routes/auth/webauthnRoutes.js'
-import { applySyncRoutes } from './routes/sync/routes.js'
 import { applyTellerRoutes } from './routes/teller/tellerRoutes.js'
+import { applyUserRoutes } from './routes/user/userRoutes.js'
 import { config } from './auth/config/env.js'
+import { runMigrationsIfNeeded } from './db/migrate.js'
 
 const port = config.port
 
@@ -47,8 +48,8 @@ app.use(
 
 applyAuthRoutes(app)
 applyWebAuthnRoutes(app)
-applySyncRoutes(app)
 applyTellerRoutes(app)
+applyUserRoutes(app)
 
 if (config.isProd) {
   app.use((req, res, next) => {
@@ -70,6 +71,21 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true })
 })
 
-app.listen(port, () => {
-  console.log(`Unified API listening on http://localhost:${port}`)
+async function start(): Promise<void> {
+  try {
+    await runMigrationsIfNeeded()
+  } catch (err) {
+    console.error(
+      '[db] Startup migrations failed; starting API without DB connectivity.',
+      err,
+    )
+  }
+  app.listen(port, () => {
+    console.log(`Unified API listening on http://localhost:${port}`)
+  })
+}
+
+void start().catch((err) => {
+  console.error('Server failed to start', err)
+  process.exit(1)
 })

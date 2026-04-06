@@ -77,8 +77,7 @@ export function SetupPinPage(): ReactElement {
             <CardTitle className="text-xl">Create app code</CardTitle>
             <CardDescription>
               Choose a 4-digit code to unlock the app on this device. It is
-              checked on our server using a secure hash; it is not stored in
-              Google Drive.
+              checked on our server using a secure hash.
             </CardDescription>
           </CardHeader>
           <CardContent>

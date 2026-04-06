@@ -7,7 +7,12 @@ import {
   shiftCalendarMonth,
 } from '../lib/api'
 import * as storage from '../lib/storage'
-import { DriveSyncIndicator } from '@/components/DriveSyncIndicator'
+import {
+  buildTripSummaries,
+  monthTimelineCommittedSpend,
+  upcomingCommittedSpendByMonth,
+} from '@/lib/insightsCommitments'
+import { InsightsCommitmentBlocks } from '@/components/InsightsCommitmentBlocks'
 import { InsightsDashboard } from '@/components/InsightsDashboard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -26,6 +31,7 @@ export function Insights(): ReactElement {
   const [exclusionRev, setExclusionRev] = useState(0)
   const [bankSyncRev, setBankSyncRev] = useState(0)
   const [budgetRev, setBudgetRev] = useState(0)
+  const [tripsRev, setTripsRev] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
 
@@ -54,6 +60,13 @@ export function Insights(): ReactElement {
     window.addEventListener(storage.MONTHLY_BUDGETS_CHANGED_EVENT, on)
     return () =>
       window.removeEventListener(storage.MONTHLY_BUDGETS_CHANGED_EVENT, on)
+  }, [])
+
+  useEffect(() => {
+    const on = (): void => setTripsRev((n) => n + 1)
+    window.addEventListener(storage.TRIPS_CHANGED_EVENT, on)
+    return () =>
+      window.removeEventListener(storage.TRIPS_CHANGED_EVENT, on)
   }, [])
 
   const allTransactions = useMemo(() => {
@@ -89,6 +102,17 @@ export function Insights(): ReactElement {
     })
   }, [allTransactions, cursor.year, cursor.month, budgetRev])
 
+  const commitment = useMemo(() => {
+    void tripsRev
+    const trips = storage.getTrips()
+    const ref = new Date()
+    return {
+      upcoming: upcomingCommittedSpendByMonth(allTransactions, trips, ref),
+      timeline: monthTimelineCommittedSpend(allTransactions, trips, ref),
+      tripSummaries: buildTripSummaries(allTransactions, trips),
+    }
+  }, [allTransactions, bankSyncRev, tripsRev])
+
   function goPrev(): void {
     setCursor((c) => shiftCalendarMonth(c.year, c.month, -1))
   }
@@ -103,9 +127,6 @@ export function Insights(): ReactElement {
         <div className="summary-top">
           <div className="summary-head">
             <h1 className="page__title">Insights</h1>
-            <div className="summary-head__trailing">
-              <DriveSyncIndicator variant="header" />
-            </div>
           </div>
         </div>
         <div ref={scrollRef} className="summary-scroll">
@@ -127,7 +148,6 @@ export function Insights(): ReactElement {
         <div className="summary-head summary-head--insights">
           <div className="summary-head__title-row">
             <h1 className="page__title">Insights</h1>
-            <DriveSyncIndicator variant="header" />
           </div>
           <div className="summary-head__month-row">
             <div className="summary-month-nav" aria-label="Select month">
@@ -170,6 +190,11 @@ export function Insights(): ReactElement {
             transactionCountMonth={monthTxs.length}
           />
         )}
+        <InsightsCommitmentBlocks
+          upcomingCommitted={commitment.upcoming}
+          monthTimeline={commitment.timeline}
+          tripSummaries={commitment.tripSummaries}
+        />
       </div>
     </main>
   )

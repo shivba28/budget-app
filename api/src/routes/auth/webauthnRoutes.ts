@@ -31,6 +31,7 @@ import {
   setSecondFactorVerified,
 } from '../../auth/sessionStoreFile.js'
 import { bearerToken, requireAuthSession } from '../../auth/webauthnRouteHelpers.js'
+import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import {
   consumeChallenge,
   setAuthenticationChallenge,
@@ -60,7 +61,7 @@ function resolveGoogleSub(
   res: Response,
   bodySub?: unknown,
 ): string | null {
-  const sid = bearerToken(req)
+  const sid = sessionIdFromRequest(req)
   if (sid) {
     const rec = getSession(sid)
     if (rec) return rec.googleSub
@@ -320,14 +321,7 @@ export function applyWebAuthnRoutes(app: Express): void {
         }
         updateCredentialAfterAuth(meta.googleSub, credentialId, newCounter)
         const refreshToken = await getLatestRefreshTokenForGoogleSub(meta.googleSub)
-        if (!refreshToken) {
-          res.status(401).json({
-            error: 'no_refresh_session',
-            message: 'Sign in with Google once on this account, then try passkey again.',
-          })
-          return
-        }
-        const token = bearerToken(req)
+        const token = sessionIdFromRequest(req)
         const fromSession = token ? getSession(token) : null
         const email =
           fromSession?.email ?? getLatestEmailForGoogleSub(meta.googleSub)
@@ -335,10 +329,10 @@ export function applyWebAuthnRoutes(app: Express): void {
           res.status(401).json({ error: 'Unknown user email; sign in with Google.' })
           return
         }
-        const oldSid = bearerToken(req)
+        const oldSid = sessionIdFromRequest(req)
         if (oldSid) await deleteSession(oldSid)
         const sessionId = createSession({
-          refreshToken,
+          refreshToken: refreshToken ?? null,
           googleSub: meta.googleSub,
           email,
         })
@@ -347,10 +341,16 @@ export function applyWebAuthnRoutes(app: Express): void {
         console.info(
           `[webauthn] auth ok googleSub=${meta.googleSub} cred=${credentialId.slice(0, 8)}…`,
         )
+        res.cookie(SESSION_COOKIE, sessionId, {
+          httpOnly: true,
+          secure: config.isProd || config.cookieSameSite === 'none',
+          sameSite: config.cookieSameSite,
+          path: '/',
+          maxAge: config.sessionMaxMs,
+        })
         res.json({
           success: true,
           message: 'Authentication successful',
-          token: sessionId,
           expiresAt: new Date(
             Date.now() + config.sessionMaxMs,
           ).toISOString(),

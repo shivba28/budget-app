@@ -64,10 +64,22 @@ export const config = {
   /** Sliding session lifetime after each authenticated request */
   sessionMaxMs: 30 * 24 * 60 * 60 * 1000,
   /**
-   * How long PIN / passkey unlock lasts before asking again.
+   * How long PIN / passkey unlock lasts before asking again (absolute ceiling).
    * Override with PIN_UNLOCK_MS (milliseconds); default 12 hours.
    */
   pinUnlockMs: envPositiveMs('PIN_UNLOCK_MS', 12 * 60 * 60 * 1000),
+  /**
+   * Re-prompt for PIN/passkey after this much idle time (no API activity that extends the window).
+   * Set PIN_INACTIVITY_TIMEOUT_MS=0 to disable (only PIN_UNLOCK_MS applies).
+   */
+  pinInactivityTimeoutMs: (() => {
+    const raw = process.env['PIN_INACTIVITY_TIMEOUT_MS']
+    if (raw === undefined || raw === '') return 15 * 60 * 1000
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return 15 * 60 * 1000
+    if (n === 0) return 0
+    return n > 0 ? n : 15 * 60 * 1000
+  })(),
   maxPinAttempts: 5,
   pinLockoutMs: 15 * 60 * 1000,
   /** WebAuthn RP ID = frontend hostname (no port in prod; localhost for dev) */

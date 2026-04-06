@@ -7,4 +7,6 @@ import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-loadEnv({ path: path.resolve(__dirname, '../.env') })
+/* Load both .env.local (if present) and .env, matching Vite-ish precedence. */
+loadEnv({ path: path.resolve(__dirname, '../.env.local'), override: false })
+loadEnv({ path: path.resolve(__dirname, '../.env'), override: false })

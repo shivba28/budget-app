@@ -4,7 +4,12 @@
 import { CATEGORIES } from '../constants/categories'
 import { MONTHLY_BUDGET_DEFAULTS_BY_CATEGORY } from '../constants/monthlyBudgetDefaults'
 import { isKnownCategoryId } from '../lib/categories'
-import type { Transaction } from '../lib/domain'
+import type { Transaction, Trip } from '../lib/domain'
+import {
+  resolveTransactionBudgetMonthKey,
+  tripsMapFromList,
+} from '../lib/effectiveMonth'
+import * as storage from '../lib/storage'
 
 export function categoryLabelForId(id: string): string {
   return CATEGORIES.find((c) => c.id === id)?.label ?? id
@@ -171,6 +176,8 @@ export type AnalyzeTransactionsOptions = {
    * effective category budgets.
    */
   readonly monthlyTotalBudgetCap?: number | null
+  /** When omitted, loads from {@link storage.getTrips}. */
+  readonly tripsById?: ReadonlyMap<number, Trip>
 }
 
 function mean(nums: number[]): number {
@@ -194,6 +201,7 @@ export function analyzeTransactions(
   opts: AnalyzeTransactionsOptions,
 ): TransactionInsights {
   const { transactions, categoryOverrides, focusYear, focusMonth } = opts
+  const tripsById = opts.tripsById ?? tripsMapFromList(storage.getTrips())
   const ref = opts.referenceDate ?? new Date()
   const refY = ref.getFullYear()
   const refM = ref.getMonth() + 1
@@ -241,7 +249,7 @@ export function analyzeTransactions(
   }
 
   for (const tx of transactions) {
-    const mk = monthKeyFromDateStr(tx.date)
+    const mk = resolveTransactionBudgetMonthKey(tx, tripsById)
     if (!mk) continue
     const r = roll(mk)
     r.allTxs.push(tx)

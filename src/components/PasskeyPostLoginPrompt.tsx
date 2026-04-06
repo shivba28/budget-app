@@ -84,7 +84,7 @@ export function PasskeyPostLoginPrompt(): ReactElement | null {
           </CardTitle>
           <CardDescription>
             Sign in faster next time with Face ID, Touch ID, Windows Hello, or
-            your security key—your Google account stays the backup for Drive.
+            your security key. You still sign in with Google first on new devices.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

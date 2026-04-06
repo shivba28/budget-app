@@ -15,13 +15,15 @@ import {
   touchSessionExpiry,
   updateSessionRecord,
 } from '../../auth/sessionStoreFile.js'
-import { bearerToken } from '../../auth/bearer.js'
+import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import { hasAnyCredential } from '../../auth/credentialStoreFile.js'
 import {
   clearUserPin,
   getUserPinHash,
   setUserPinHash,
 } from '../../auth/userPinStore.js'
+import { dbEnabled } from '../../db/pool.js'
+import { upsertUser } from '../../db/users.js'
 
 const OAUTH_STATE_COOKIE = 'budget_oauth_state'
 const OAUTH_INTENT_COOKIE = 'budget_oauth_intent'
@@ -49,6 +51,13 @@ const baseCookie = {
   path: '/',
 }
 
+const sessionCookie = {
+  httpOnly: true as const,
+  secure: config.isProd || config.cookieSameSite === 'none',
+  sameSite: config.cookieSameSite,
+  path: '/' as const,
+}
+
 export function applyAuthRoutes(app: Express): void {
   app.get('/api/auth/google/start', (req: Request, res: Response) => {
     if (!googleOAuthConfigured()) {
@@ -73,14 +82,12 @@ export function applyAuthRoutes(app: Express): void {
     }
     const client = oauthClient()
     const url = client.generateAuthUrl({
-      access_type: 'offline',
-      /** Default forces account pick + re-consent so Google returns a refresh token (needed for Drive) when switching accounts or re-authorizing. Override with GOOGLE_OAUTH_PROMPT. */
-      prompt: config.googleOauthPrompt ?? 'select_account consent',
+      access_type: 'online',
+      prompt: config.googleOauthPrompt ?? 'select_account',
       scope: [
         'openid',
         'https://www.googleapis.com/auth/userinfo.email',
         'https://www.googleapis.com/auth/userinfo.profile',
-        'https://www.googleapis.com/auth/drive.appdata',
       ],
       state,
     })
@@ -132,31 +139,48 @@ export function applyAuthRoutes(app: Express): void {
       }
 
       const refreshToken =
-        tokens.refresh_token ?? (await getLatestRefreshTokenForGoogleSub(googleSub))
-      if (!refreshToken) {
-        res.redirect(
-          appendQuery(config.frontendUrl, {
-            sync: 'error',
-            reason: 'no_refresh_token',
-          }),
-        )
-        return
-      }
+        (tokens.refresh_token as string | undefined) ??
+        (await getLatestRefreshTokenForGoogleSub(googleSub))
 
       if (pinResetIntent) {
         clearUserPin(googleSub)
         clearPinUnlockForGoogleSub(googleSub)
       }
 
+      if (dbEnabled()) {
+        const profile = data as {
+          name?: string | null
+          picture?: string | null
+        }
+        try {
+          await upsertUser({
+            id: googleSub,
+            email,
+            name: typeof profile.name === 'string' ? profile.name : null,
+            avatarUrl:
+              typeof profile.picture === 'string' ? profile.picture : null,
+          })
+        } catch (dbErr) {
+          console.error('[auth/google/callback] user upsert failed', dbErr)
+          res.redirect(
+            appendQuery(config.frontendUrl, { sync: 'error', reason: 'user_db' }),
+          )
+          return
+        }
+      }
+
       const sessionId = createSession({
-        refreshToken,
+        refreshToken: refreshToken ?? null,
         googleSub,
         email,
       })
-      /** Put session id in query (not URL hash): many browsers/proxies strip fragments on 302 Location, so #token= was dropped and the app never stored the session. */
+      res.cookie(SESSION_COOKIE, sessionId, {
+        ...sessionCookie,
+        maxAge: config.sessionMaxMs,
+      })
+      /** Session is now carried via httpOnly cookie (no token in URL). */
       const frontWithSync = appendQuery(config.frontendUrl, {
         sync: 'ok',
-        token: sessionId,
         ...(pinResetIntent ? { pin_reset: '1' } : {}),
       })
       res.redirect(302, frontWithSync)
@@ -170,7 +194,7 @@ export function applyAuthRoutes(app: Express): void {
 
   app.get('/api/auth/me', (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store')
-    const sid = bearerToken(req)
+    const sid = sessionIdFromRequest(req)
     if (!sid) {
       res.json({
         authenticated: false as const,
@@ -181,7 +205,7 @@ export function applyAuthRoutes(app: Express): void {
         ...(!config.isProd
           ? {
               devHint:
-                'No Authorization: Bearer header. The app stores the session in localStorage (budget_auth_token) and sends it on API calls; opening this URL in the address bar does not.',
+                'No session found. The app uses an httpOnly cookie session; opening this URL in the address bar is fine, but you must sign in first (and allow cookies).',
             }
           : {}),
       })
@@ -205,12 +229,12 @@ export function applyAuthRoutes(app: Express): void {
         })
         return
       }
-      touchSessionExpiry(sid)
       const pinHash = getUserPinHash(rec.googleSub)
       const hasPasskeys = hasAnyCredential(rec.googleSub)
       const hasPin = Boolean(pinHash)
       const pinConfigured = hasPin || hasPasskeys
       const pinUnlocked = pinConfigured ? isPinUnlocked(rec) : false
+      touchSessionExpiry(sid, { extendPinActivity: false })
       res.json({
         authenticated: true as const,
         email: rec.email,
@@ -224,19 +248,27 @@ export function applyAuthRoutes(app: Express): void {
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
     void (async () => {
-      const sid = bearerToken(req)
+      const sid = sessionIdFromRequest(req)
       if (sid) {
         await deleteSession(sid)
       }
+      res.clearCookie(SESSION_COOKIE, sessionCookie)
       res.status(204).send()
     })()
+  })
+
+  /** Extends PIN inactivity window when already unlocked (via {@link touchSessionExpiry} in requireAuthSession). */
+  app.post('/api/auth/pin/heartbeat', (req: Request, res: Response) => {
+    const auth = requireAuthSession(req, res)
+    if (!auth) return
+    res.status(204).send()
   })
 
   function requireAuthSession(
     req: Request,
     res: Response,
   ): { sid: string; rec: NonNullable<ReturnType<typeof getSession>> } | null {
-    const sid = bearerToken(req)
+    const sid = sessionIdFromRequest(req)
     if (!sid) {
       res.status(401).json({ error: 'Unauthorized' })
       return null
@@ -247,7 +279,8 @@ export function applyAuthRoutes(app: Express): void {
       return null
     }
     touchSessionExpiry(sid)
-    return { sid, rec }
+    const fresh = getSession(sid)
+    return { sid, rec: fresh ?? rec }
   }
 
   app.post('/api/auth/pin/set', async (req: Request, res: Response) => {

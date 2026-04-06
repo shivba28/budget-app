@@ -9,14 +9,14 @@ import {
   useRef,
   useState,
 } from 'react'
-import { clearBootstrapSessionFlag, runDriveBootstrap } from '@/lib/cloudBackup/bootstrap'
-import { clearDriveSyncStatus } from '@/lib/cloudBackup/driveSyncStatus'
 import * as storage from '@/lib/storage'
 import {
   captureAuthTokenFromUrl,
   fetchAuthMe,
+  postPinHeartbeat,
   type AuthMeResponse,
 } from '@/lib/syncApi'
+import { hydrateServerCachesAfterLogin } from '@/lib/serverData'
 
 export type AuthStatus =
   | 'loading'
@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   const [hasPin, setHasPin] = useState(false)
   const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null)
   const bootstrapOnce = useRef(false)
+  const lastPinHeartbeatAt = useRef(0)
 
   const refresh = useCallback(async () => {
     const me = await fetchAuthMe()
@@ -59,8 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       const prev = window.localStorage.getItem(storage.KEYS.lastAuthEmail)
       if (prev !== null && prev !== me.email) {
         storage.clearAll()
-        clearDriveSyncStatus()
-        clearBootstrapSessionFlag()
         bootstrapOnce.current = false
       }
       try {
@@ -85,20 +84,24 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   const onUnlocked = useCallback(async () => {
     if (bootstrapOnce.current) return
     bootstrapOnce.current = true
-    const result = await runDriveBootstrap()
-    setLastSyncMessage(result.message)
-    if (!result.ok) {
+    try {
+      await hydrateServerCachesAfterLogin()
+      try {
+        window.dispatchEvent(new CustomEvent(storage.BANK_SYNC_COMPLETED_EVENT))
+      } catch {
+        /* ignore */
+      }
+    } catch {
       bootstrapOnce.current = false
     }
   }, [])
 
-  /** Run before child useEffects so ?token= is in localStorage before LoginPage calls refresh(). */
+  /** Legacy cleanup: remove any `token` query/hash param from the URL if present. */
   useLayoutEffect(() => {
     captureAuthTokenFromUrl()
   }, [])
 
   useEffect(() => {
-    // OAuth query cleanup + initial / post-OAuth session load
     const t = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search)
       const sync = params.get('sync')
@@ -114,11 +117,9 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       } else if (sync === 'error') {
         const reason = params.get('reason') ?? 'unknown'
         const msg =
-          reason === 'no_refresh_token'
-            ? 'Google did not return a refresh token. In Google Account → Security → Third-party access, remove this app and sign in again. If it persists, ensure the API server can use prompt=select_account consent (default) or consent.'
-            : reason === 'bad_state'
-              ? 'Sign-in session expired or cookies were blocked. Close other tabs, try again, or use the same browser window for the whole Google sign-in flow.'
-              : `Sign-in failed (${reason}).`
+          reason === 'bad_state'
+            ? 'Sign-in session expired or cookies were blocked. Close other tabs, try again, or use the same browser window for the whole Google sign-in flow.'
+            : `Sign-in failed (${reason}).`
         setLastSyncMessage(msg)
         params.delete('sync')
         params.delete('reason')
@@ -136,16 +137,32 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
 
   const clearSyncMessage = useCallback(() => setLastSyncMessage(null), [])
 
+  /** Detect server-side PIN inactivity lock; tab-visible heartbeat extends idle window (throttled). */
   useEffect(() => {
-    if (!lastSyncMessage) return
-    const isDriveBackupToast =
-      /Backed up to Google Drive\.|Restored from Google Drive\.|Already synced this session\./i.test(
-        lastSyncMessage,
-      )
-    if (!isDriveBackupToast) return
-    const t = window.setTimeout(() => setLastSyncMessage(null), 5000)
-    return () => window.clearTimeout(t)
-  }, [lastSyncMessage])
+    if (status !== 'ready') return
+    const HB_MIN_MS = 60_000
+    const tick = () => {
+      void refresh()
+    }
+    const id = window.setInterval(tick, 45_000)
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastPinHeartbeatAt.current >= HB_MIN_MS) {
+        lastPinHeartbeatAt.current = now
+        void postPinHeartbeat().finally(() => {
+          void refresh()
+        })
+      } else {
+        void refresh()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [status, refresh])
 
   const value = useMemo(
     (): AuthContextValue => ({

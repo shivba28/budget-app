@@ -1,5 +1,3 @@
-import { clearDriveSyncStatus } from '@/lib/cloudBackup/driveSyncStatus'
-import { SESSION_BOOTSTRAP_KEY } from '@/lib/cloudBackup/keys'
 import * as storage from '@/lib/storage'
 import type {
   AuthenticationResponseJSON,
@@ -8,9 +6,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/types'
 
-const AUTH_TOKEN_KEY = 'budget_auth_token'
-
-/** Unified API origin (auth + Drive sync). Paths add `/api/auth/...`, `/api/sync/...`. */
+/** Unified API origin. Paths add `/api/auth/...`. */
 export function getSyncApiBase(): string {
   const u = import.meta.env.VITE_API_URL
   if (typeof u === 'string' && u.trim() !== '') {
@@ -20,25 +16,16 @@ export function getSyncApiBase(): string {
   if (typeof legacy === 'string' && legacy.trim() !== '') {
     return legacy.replace(/\/$/, '')
   }
-  return 'http://localhost:4000'
+  // Same-origin as the Vite app so session cookies match /api proxy (see api.ts teller default).
+  return ''
 }
 
 export function getAuthToken(): string | null {
-  try {
-    const t = window.localStorage.getItem(AUTH_TOKEN_KEY)
-    return t && t.trim() !== '' ? t : null
-  } catch {
-    return null
-  }
+  return null
 }
 
 export function setAuthToken(token: string | null): void {
-  try {
-    if (!token) window.localStorage.removeItem(AUTH_TOKEN_KEY)
-    else window.localStorage.setItem(AUTH_TOKEN_KEY, token)
-  } catch {
-    // ignore
-  }
+  void token
 }
 
 export function captureAuthTokenFromUrl(): boolean {
@@ -49,7 +36,6 @@ export function captureAuthTokenFromUrl(): boolean {
     const hashParams = new URLSearchParams(hash)
     let token = hashParams.get('token')
     if (token) {
-      setAuthToken(token)
       hashParams.delete('token')
       const nextHash = hashParams.toString()
       window.history.replaceState(
@@ -62,7 +48,6 @@ export function captureAuthTokenFromUrl(): boolean {
     const qs = new URLSearchParams(window.location.search)
     token = qs.get('token')
     if (token) {
-      setAuthToken(token)
       qs.delete('token')
       const nextSearch = qs.toString()
       window.history.replaceState(
@@ -76,12 +61,6 @@ export function captureAuthTokenFromUrl(): boolean {
   } catch {
     return false
   }
-}
-
-function authHeaders(): HeadersInit | undefined {
-  const t = getAuthToken()
-  if (!t) return undefined
-  return { Authorization: `Bearer ${t}` }
 }
 
 export type AuthMeResponse =
@@ -103,11 +82,23 @@ export type AuthMeResponse =
       hasPin: boolean
     }
 
+/** Bump PIN idle activity on the server (no-op if locked). Throttle on the client. */
+export async function postPinHeartbeat(): Promise<boolean> {
+  try {
+    const r = await fetch(`${getSyncApiBase()}/api/auth/pin/heartbeat`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    return r.ok
+  } catch {
+    return false
+  }
+}
+
 export async function fetchAuthMe(): Promise<AuthMeResponse> {
   try {
-    const h = authHeaders()
     const r = await fetch(`${getSyncApiBase()}/api/auth/me`, {
-      headers: h ? { ...h } : undefined,
+      credentials: 'include',
     })
     if (!r.ok) {
       return {
@@ -131,19 +122,11 @@ export async function fetchAuthMe(): Promise<AuthMeResponse> {
 }
 
 export async function logoutSync(): Promise<void> {
-  const h = authHeaders()
   await fetch(
     `${getSyncApiBase()}/api/auth/logout`,
-    h ? { method: 'POST', headers: h } : { method: 'POST' },
+    { method: 'POST', credentials: 'include' },
   )
-  setAuthToken(null)
   storage.clearAll()
-  clearDriveSyncStatus()
-  try {
-    window.sessionStorage.removeItem(SESSION_BOOTSTRAP_KEY)
-  } catch {
-    // ignore
-  }
 }
 
 export function startGoogleSignIn(intent?: 'pin_reset'): void {
@@ -158,9 +141,9 @@ export function startGoogleSignIn(intent?: 'pin_reset'): void {
 export async function setPinRequest(pin: string, pinConfirm: string): Promise<void> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/pin/set`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify({ pin, pinConfirm }),
   })
@@ -174,9 +157,9 @@ export async function setPinRequest(pin: string, pinConfirm: string): Promise<vo
 export async function verifyPinRequest(pin: string): Promise<void> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/pin/verify`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify({ pin }),
   })
@@ -194,9 +177,9 @@ export async function changePinRequest(
 ): Promise<void> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/pin/change`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify({ currentPin, newPin, newPinConfirm }),
   })
@@ -207,36 +190,6 @@ export async function changePinRequest(
   }
 }
 
-export async function pushBackupToServer(body: unknown): Promise<void> {
-  const r = await fetch(`${getSyncApiBase()}/api/sync/backup`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
-    },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    const msg = typeof err?.error === 'string' ? err.error : r.statusText
-    throw new Error(msg || 'Upload failed')
-  }
-}
-
-export async function pullBackupFromServer(): Promise<string | null> {
-  const h = authHeaders()
-  const r = await fetch(`${getSyncApiBase()}/api/sync/backup`, {
-    headers: h ? { ...h } : undefined,
-  })
-  if (r.status === 404) return null
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    const msg = typeof err?.error === 'string' ? err.error : r.statusText
-    throw new Error(msg || 'Download failed')
-  }
-  return r.text()
-}
-
 export type WebAuthnRegisterCheckResponse = {
   hasPasskeys: boolean
   credentialCount: number
@@ -245,7 +198,7 @@ export type WebAuthnRegisterCheckResponse = {
 
 export async function webAuthnRegisterCheck(): Promise<WebAuthnRegisterCheckResponse> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/register/check`, {
-    headers: { ...(authHeaders() ?? {}) },
+    credentials: 'include',
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({}))
@@ -260,9 +213,9 @@ export async function webAuthnRegisterStart(body?: {
 }): Promise<PublicKeyCredentialCreationOptionsJSON> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/register/start`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify(body ?? {}),
   })
@@ -279,9 +232,9 @@ export async function webAuthnRegisterVerify(
 ): Promise<void> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/register/verify`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify(credential),
   })
@@ -302,9 +255,9 @@ export async function webAuthnAuthenticateStart(body?: {
 }): Promise<PublicKeyCredentialRequestOptionsJSON> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/authenticate/start`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify(body ?? {}),
   })
@@ -318,7 +271,6 @@ export async function webAuthnAuthenticateStart(body?: {
 
 export type WebAuthnAuthenticateVerifyResponse = {
   success: boolean
-  token: string
   user: { sub: string; email: string }
 }
 
@@ -327,9 +279,9 @@ export async function webAuthnAuthenticateVerify(
 ): Promise<WebAuthnAuthenticateVerifyResponse> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/authenticate/verify`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeaders() ?? {}),
     },
     body: JSON.stringify(credential),
   })
@@ -356,7 +308,7 @@ export type WebAuthnCredentialRow = {
 
 export async function webAuthnListCredentials(): Promise<WebAuthnCredentialRow[]> {
   const r = await fetch(`${getSyncApiBase()}/api/auth/webauthn/credentials`, {
-    headers: { ...(authHeaders() ?? {}) },
+    credentials: 'include',
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({}))
@@ -373,7 +325,7 @@ export async function webAuthnDeleteCredential(credentialId: string): Promise<vo
     `${getSyncApiBase()}/api/auth/webauthn/credential/${enc}`,
     {
       method: 'DELETE',
-      headers: { ...(authHeaders() ?? {}) },
+      credentials: 'include',
     },
   )
   if (!r.ok && r.status !== 204) {

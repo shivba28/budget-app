@@ -3,18 +3,74 @@ import type { TellerConnectEnrollment } from 'teller-connect-react'
 import { CATEGORIES } from '../constants/categories'
 import { CATEGORY_COLORS } from '../constants/colors'
 import { categorize, isKnownCategoryId } from './categories'
-import type { Account, ConnectedAccountInfo, Transaction } from './domain'
+import type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
+import {
+  resolveTransactionBudgetMonthKey,
+  tripsMapFromList,
+} from './effectiveMonth'
 import * as storage from './storage'
+import { fetchTransactionsFromServer } from './serverData'
 
-export type { Account, ConnectedAccountInfo, Transaction } from './domain'
+export type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
 
-/** Transactions / Insights: omit accounts the user unchecked in Settings. */
+let syncInFlight: Promise<Transaction[]> | null = null
+const syncProgressListeners = new Set<
+  ((p: {
+    phase:
+      | 'rehydrate'
+      | 'accounts'
+      | 'account_transactions'
+      | 'server_merge'
+      | 'finalize'
+    done: number
+    total: number
+    accountName?: string
+  }) => void) | null | undefined
+>()
+
+function emitSyncProgress(p: {
+  phase:
+    | 'rehydrate'
+    | 'accounts'
+    | 'account_transactions'
+    | 'server_merge'
+    | 'finalize'
+  done: number
+  total: number
+  accountName?: string
+}): void {
+  for (const cb of syncProgressListeners) {
+    if (!cb) continue
+    try {
+      cb(p)
+    } catch {
+      /* ignore UI listeners */
+    }
+  }
+}
+
+/**
+ * Server mode: hide transactions when there are no linked bank accounts, and hide rows for
+ * account ids that are not in the current linked set (e.g. stale DB rows).
+ */
+export function filterTransactionsForLinkedBankAccounts(
+  txs: readonly Transaction[],
+): Transaction[] {
+  const accounts = storage.getAccounts()
+  if (accounts === null) return [...txs]
+  if (accounts.length === 0) return []
+  const allowed = new Set(accounts.map((a) => a.id))
+  return txs.filter((t) => allowed.has(t.accountId))
+}
+
+/** Transactions / Insights: linked banks, then omit accounts the user unchecked in Settings. */
 export function filterTransactionsByVisibleAccounts(
   txs: readonly Transaction[],
 ): Transaction[] {
+  const linked = filterTransactionsForLinkedBankAccounts(txs)
   const ex = storage.getExcludedAccountIds()
-  if (ex.size === 0) return [...txs]
-  return txs.filter((t) => !ex.has(t.accountId))
+  if (ex.size === 0) return linked
+  return linked.filter((t) => !ex.has(t.accountId))
 }
 
 /** Teller routes live under `/api/teller` on the unified API. */
@@ -37,7 +93,10 @@ function resolveApiBaseUrl(): string {
 export const api = axios.create({
   baseURL: resolveApiBaseUrl(),
   timeout: 15_000,
+  withCredentials: true,
 })
+
+// Auth is via httpOnly cookie session (withCredentials).
 
 export interface SummaryPieSegment {
   readonly name: string
@@ -66,14 +125,7 @@ export async function clearBackendSession(): Promise<void> {
 }
 
 export async function rehydrateBackendSessionIfNeeded(): Promise<void> {
-  const enrollments = storage.getEnrollments()
-  for (const e of enrollments) {
-    try {
-      await registerEnrollmentToken(e.enrollmentId, e.accessToken)
-    } catch {
-      /* ignore */
-    }
-  }
+  // No-op: enrollments/tokens are stored server-side (Neon) and auth is via httpOnly cookie.
 }
 
 function mapRawAccount(raw: unknown): Account | null {
@@ -206,6 +258,27 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
     detailsCategory !== null
       ? (mapTellerCategoryLabel(detailsCategory) ?? 'other')
       : categorize(description)
+
+  let effectiveDate: string | null | undefined
+  if (r.effective_date === null || r.effectiveDate === null) {
+    effectiveDate = null
+  } else if (
+    typeof r.effective_date === 'string' &&
+    r.effective_date.length >= 7
+  ) {
+    effectiveDate = r.effective_date.slice(0, 10)
+  } else if (
+    typeof r.effectiveDate === 'string' &&
+    r.effectiveDate.length >= 7
+  ) {
+    effectiveDate = r.effectiveDate.slice(0, 10)
+  }
+
+  const trRaw = r.trip_id !== undefined ? r.trip_id : r.tripId
+  let tripId: number | null | undefined
+  if (trRaw === null) tripId = null
+  else if (typeof trRaw === 'number' && Number.isFinite(trRaw)) tripId = trRaw
+
   const base: Transaction = {
     id,
     accountId,
@@ -213,6 +286,13 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
     date,
     categoryId,
     description,
+  }
+  if (effectiveDate !== undefined) {
+    ;(base as Transaction & { effectiveDate?: string | null }).effectiveDate =
+      effectiveDate
+  }
+  if (tripId !== undefined) {
+    ;(base as Transaction & { tripId?: number | null }).tripId = tripId
   }
   return detailsCategory !== null
     ? { ...base, detailCategory: detailsCategory }
@@ -259,12 +339,6 @@ export async function handleTellerConnectSuccess(
 ): Promise<ConnectedAccountInfo | null> {
   const token = enrollment.accessToken
   const enrollmentId = enrollment.enrollment.id
-  const institutionName = enrollment.enrollment.institution.name
-  storage.upsertEnrollment({
-    enrollmentId,
-    accessToken: token,
-    institutionName,
-  })
   await registerEnrollmentToken(enrollmentId, token)
   const accounts = await fetchAccounts()
   storage.saveAccounts(accounts)
@@ -317,46 +391,36 @@ export async function disconnectEnrollment(enrollmentId: string): Promise<void> 
   storage.clearTransactions()
 }
 
-function placeholderTransactions(): Transaction[] {
-  const d = new Date().toISOString().slice(0, 10)
-  return [
-    {
-      id: 'demo-1',
-      accountId: 'demo-acct',
-      amount: 42.5,
-      date: d,
-      categoryId: categorize('Whole Foods Market'),
-      description: 'Whole Foods Market',
-      detailCategory: 'groceries',
-    },
-    {
-      id: 'demo-2',
-      accountId: 'demo-acct',
-      amount: 18,
-      date: d,
-      categoryId: categorize('Uber trip'),
-      description: 'Uber trip',
-      detailCategory: 'dining',
-    },
-    {
-      id: 'demo-3',
-      accountId: 'demo-acct',
-      amount: -1200,
-      date: d,
-      categoryId: 'other',
-      description: 'Payroll deposit (demo)',
-    },
-  ]
-}
-
 /**
- * Loads from localStorage when present; otherwise fetches from the backend and caches.
+ * Loads from in-memory cache when present; otherwise fetches from the API.
  */
 export async function loadTransactionsFromCacheOrFetch(options?: {
   throwOnFailure?: boolean
 }): Promise<Transaction[]> {
   const cached = storage.getTransactions()
-  if (cached !== null) return cached
+  if (cached !== null) {
+    return filterTransactionsForLinkedBankAccounts(cached)
+  }
+  let accs = storage.getAccounts()
+  if (accs === null) {
+    try {
+      accs = await fetchAccounts()
+      storage.saveAccounts(accs)
+    } catch {
+      return refreshTransactionsFromBackend(options)
+    }
+  }
+  if (accs.length === 0) {
+    storage.saveTransactions([])
+    return []
+  }
+  const remote = await fetchTransactionsFromServer()
+  if (remote) {
+    const allowed = new Set(accs.map((a) => a.id))
+    const filtered = remote.filter((t) => allowed.has(t.accountId))
+    storage.saveTransactions(filtered)
+    return filtered
+  }
   return refreshTransactionsFromBackend(options)
 }
 
@@ -366,52 +430,95 @@ export async function loadTransactionsFromCacheOrFetch(options?: {
  */
 export async function refreshTransactionsFromBackend(options?: {
   throwOnFailure?: boolean
+  onProgress?: (p: {
+    /** Human-readable phase for UI. */
+    phase:
+      | 'rehydrate'
+      | 'accounts'
+      | 'account_transactions'
+      | 'server_merge'
+      | 'finalize'
+    /** Completed units (0..total). */
+    done: number
+    total: number
+    accountName?: string
+  }) => void
 }): Promise<Transaction[]> {
+  const existing = syncInFlight
+  if (existing) {
+    if (options?.onProgress) syncProgressListeners.add(options.onProgress)
+    return existing
+  }
   const throwOnFailure = options?.throwOnFailure === true
+  const onProgress = options?.onProgress
+  if (onProgress) syncProgressListeners.add(onProgress)
+  window.dispatchEvent(new CustomEvent(storage.BANK_SYNC_STARTED_EVENT))
+  syncInFlight = (async () => {
+  emitSyncProgress({ phase: 'rehydrate', done: 0, total: 1 })
   await rehydrateBackendSessionIfNeeded()
+  emitSyncProgress({ phase: 'rehydrate', done: 1, total: 1 })
   let list = storage.getAccounts()
   if (!list || list.length === 0) {
+    emitSyncProgress({ phase: 'accounts', done: 0, total: 1 })
     try {
       list = await fetchAccounts()
       storage.saveAccounts(list)
     } catch {
       list = []
     }
+    emitSyncProgress({ phase: 'accounts', done: 1, total: 1 })
   }
   if (!list || list.length === 0) {
-    if (throwOnFailure) {
-      return []
-    }
-    const demo = placeholderTransactions()
-    storage.saveTransactions(demo)
-    return demo
+    storage.saveTransactions([])
+    return []
   }
   try {
-    const merged: Transaction[] = []
-    const seen = new Set<string>()
+    const total = list.length
+    let done = 0
     for (const acc of list) {
-      const batch = await fetchTransactions(acc.id, acc.enrollmentId)
-      for (const tx of batch) {
-        if (!seen.has(tx.id)) {
-          seen.add(tx.id)
-          merged.push(tx)
-        }
+      emitSyncProgress({
+        phase: 'account_transactions',
+        done,
+        total,
+        accountName: acc.name,
+      })
+      try {
+        await fetchTransactions(acc.id, acc.enrollmentId)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        throw new Error(`Sync failed for ${acc.name}: ${msg}`)
       }
+      done += 1
     }
-    merged.sort((a, b) => b.date.localeCompare(a.date))
-    storage.saveTransactions(merged)
-    storage.recordSuccessfulBankTransactionFetch()
-    return merged
+    emitSyncProgress({ phase: 'server_merge', done: total, total })
+    const remote = await fetchTransactionsFromServer()
+    if (remote) {
+      const allowed = new Set(list.map((a) => a.id))
+      const filtered = remote.filter((t) => allowed.has(t.accountId))
+      storage.saveTransactions(filtered)
+      storage.recordSuccessfulBankTransactionFetch()
+      emitSyncProgress({ phase: 'finalize', done: total, total })
+      return filtered
+    }
+    if (throwOnFailure) {
+      throw new Error('Could not load transactions from server')
+    }
+    return []
   } catch (err) {
     const cached = storage.getTransactions()
-    if (cached !== null) return cached
+    if (cached !== null) return filterTransactionsForLinkedBankAccounts(cached)
     if (throwOnFailure) {
       throw err
     }
-    const demo = placeholderTransactions()
-    storage.saveTransactions(demo)
-    return demo
+    return []
   }
+  })()
+    .finally(() => {
+      syncInFlight = null
+      syncProgressListeners.clear()
+      window.dispatchEvent(new CustomEvent(storage.BANK_SYNC_ENDED_EVENT))
+    })
+  return await syncInFlight
 }
 
 /** @deprecated Use {@link loadTransactionsFromCacheOrFetch} */
@@ -428,15 +535,8 @@ export async function loadAccountsForPage(): Promise<Account[]> {
     storage.saveAccounts(fresh)
     return fresh
   } catch {
-    const demo: Account[] = [
-      {
-        id: 'demo-acct',
-        name: 'Demo account',
-        enrollmentId: 'demo',
-      },
-    ]
-    storage.saveAccounts(demo)
-    return demo
+    storage.saveAccounts([])
+    return []
   }
 }
 
@@ -454,16 +554,22 @@ export interface MonthSummaryResult {
   readonly hasSpendInMonth: boolean
 }
 
+/** Calendar month filter for budgets & Insights — uses resolved budget month (trip / effective date). */
 export function filterTransactionsForCalendarMonth(
   transactions: readonly Transaction[],
   year: number,
   month1to12: number,
+  tripsById?: ReadonlyMap<number, Trip>,
 ): Transaction[] {
   const prefix = `${year}-${String(month1to12).padStart(2, '0')}`
+  const map = tripsById ?? tripsMapFromList(storage.getTrips())
   return transactions.filter(
-    (t) => typeof t.date === 'string' && t.date.startsWith(prefix),
+    (t) => resolveTransactionBudgetMonthKey(t, map) === prefix,
   )
 }
+
+export { tripsMapFromList, resolveTransactionBudgetMonthKey } from './effectiveMonth'
+export { isDeferredOutOfViewMonth } from './effectiveMonth'
 
 export function formatCalendarMonthLabel(year: number, month1to12: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -620,23 +726,7 @@ export function loadStoredConnectionInfo(): ConnectedAccountInfo | null {
   return storage.getConnectedAccountSummary()
 }
 
-/**
- * Linked accounts from Teller (cached). If the accounts list is empty but a
- * connection summary exists, returns one synthetic row so Settings can still show a card.
- */
+/** Linked accounts from Teller (in-memory cache; loaded from the API). */
 export function loadLinkedAccounts(): Account[] {
-  const list = storage.getAccounts()
-  if (list && list.length > 0) return list
-  const summary = storage.getConnectedAccountSummary()
-  if (summary) {
-    return [
-      {
-        id: summary.accountId,
-        name: summary.accountName,
-        enrollmentId: 'legacy',
-        institution: { name: summary.institutionName },
-      },
-    ]
-  }
-  return []
+  return storage.getAccounts() ?? []
 }

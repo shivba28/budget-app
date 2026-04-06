@@ -26,9 +26,11 @@
     "google-auth-library": "^9.14.1",
     "googleapis": "^144.0.0",
     "http-proxy-middleware": "^3.0.5",
+    "pg": "^8.20.0",
     "typescript": "~5.9.3"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "nodemon": "^3.1.9",
     "tsx": "^4.19.2"
   }
