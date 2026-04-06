@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useTellerConnect } from 'teller-connect-react'
 import type { TellerConnectEnrollment } from 'teller-connect-react'
 import { CATEGORIES } from '../constants/categories'
@@ -123,6 +123,7 @@ const PIN4 = /^\d{4}$/
 export function Settings(): ReactElement {
   const navigate = useNavigate()
   const { email, lastSyncMessage, clearSyncMessage, hasPin, refresh } = useAuth()
+  const location = useLocation()
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
   const [accountUiTick, setAccountUiTick] = useState(0)
   const [accountError, setAccountError] = useState<string | null>(null)
@@ -163,6 +164,14 @@ export function Settings(): ReactElement {
     window.addEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
     return () => window.removeEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
   }, [])
+
+  useEffect(() => {
+    const s = location.state as { openSettingsTab?: SettingsTab } | undefined
+    const t = s?.openSettingsTab
+    if (t !== 'banks' && t !== 'budgets' && t !== 'account') return
+    setSettingsTab(t)
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} })
+  }, [location.state, location.pathname, location.search, navigate])
 
   const loadPasskeys = useCallback(async () => {
     setPasskeyError(null)

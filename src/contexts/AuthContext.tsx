@@ -131,6 +131,10 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         )
       }
       void refresh()
+      if (sync === 'ok') {
+        // WebKit can apply Set-Cookie from the OAuth redirect slightly after first paint; second /me avoids a false “signed out” state.
+        window.setTimeout(() => void refresh(), 300)
+      }
     }, 0)
     return () => window.clearTimeout(t)
   }, [refresh])

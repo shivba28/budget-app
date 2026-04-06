@@ -53,7 +53,9 @@ export const config = {
   frontendUrl: process.env['FRONTEND_URL'] ?? 'http://localhost:5174',
   dataDir: process.env['DATA_DIR'] ?? 'data',
   /**
-   * Google `prompt` param. If unset, the server defaults to `select_account consent` so switching Google accounts still returns a refresh token.
+   * Google `prompt` param (e.g. `consent`, `select_account`, or `select_account consent`).
+   * If unset, auth routes default to `select_account` only. Set `GOOGLE_OAUTH_PROMPT=consent` when you need
+   * Google to re-issue a refresh token.
    * @see https://developers.google.com/identity/protocols/oauth2/openid-connect#authenticationuriparameters
    */
   googleOauthPrompt: process.env['GOOGLE_OAUTH_PROMPT']?.trim() || undefined,

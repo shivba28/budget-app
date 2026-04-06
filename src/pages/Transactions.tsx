@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Calendar, Plane } from 'lucide-react'
 import { CATEGORIES } from '../constants/categories'
@@ -110,6 +111,8 @@ const DATE_PRESETS: { id: DatePreset; label: string }[] = [
 ]
 
 export function Transactions(): ReactElement {
+  const navigate = useNavigate()
+  const [accountsTick, setAccountsTick] = useState(0)
   const [rows, setRows] = useState<Transaction[]>(
     () => storage.getTransactions() ?? [],
   )
@@ -178,6 +181,12 @@ export function Transactions(): ReactElement {
   useEffect(() => {
     void doInitialLoad()
   }, [doInitialLoad])
+
+  useEffect(() => {
+    const on = (): void => setAccountsTick((n) => n + 1)
+    window.addEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
+    return () => window.removeEventListener(storage.ACCOUNTS_CHANGED_EVENT, on)
+  }, [])
 
   useEffect(() => {
     const onStart = (): void => setSyncing(true)
@@ -276,6 +285,11 @@ export function Transactions(): ReactElement {
     [searchQuery, categoryFilter, directionFilter, datePreset],
   )
 
+  const hasLinkedBanks = useMemo(() => {
+    void accountsTick
+    return (storage.getAccounts() ?? []).length > 0
+  }, [accountsTick])
+
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const accounts = storage.getAccounts() ?? []
@@ -316,6 +330,7 @@ export function Transactions(): ReactElement {
     customDateFrom,
     customDateTo,
     exclusionRev,
+    accountsTick,
   ])
 
   const monthGroups = useMemo(
@@ -432,15 +447,30 @@ export function Transactions(): ReactElement {
         <div className="tx-screen-head">
           <h1 className="page__title">Transactions</h1>
           <div className="tx-screen-head__trailing">
-            <Button
-              type="button"
-              className="tx-sync-btn"
-              size="sm"
-              disabled={syncing}
-              onClick={() => void doSync()}
-            >
-              {syncing ? 'Syncing…' : 'Sync'}
-            </Button>
+            {hasLinkedBanks ? (
+              <Button
+                type="button"
+                className="tx-sync-btn"
+                size="sm"
+                disabled={syncing}
+                onClick={() => void doSync()}
+              >
+                {syncing ? 'Syncing…' : 'Sync'}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="tx-sync-btn"
+                size="sm"
+                onClick={() =>
+                  navigate('/app/settings', {
+                    state: { openSettingsTab: 'banks' },
+                  })
+                }
+              >
+                Add bank
+              </Button>
+            )}
           </div>
         </div>
         {syncing ? (
@@ -605,8 +635,21 @@ export function Transactions(): ReactElement {
         {!filtersActive && rows.length === 0 && !bootstrapLoading ? (
           <Card className="border-dashed shadow-none" role="status">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
-              No transactions yet. Link your bank in Settings, then tap{' '}
-              <strong className="text-foreground">Sync</strong> to pull activity.
+              {hasLinkedBanks ? (
+                <>
+                  No transactions yet. Tap{' '}
+                  <strong className="text-foreground">Sync</strong> to pull
+                  activity.
+                </>
+              ) : (
+                <>
+                  No transactions yet. Use{' '}
+                  <strong className="text-foreground">Add bank</strong> above to
+                  link an institution; after that, use{' '}
+                  <strong className="text-foreground">Sync</strong> to pull
+                  activity.
+                </>
+              )}
             </CardContent>
           </Card>
         ) : null}

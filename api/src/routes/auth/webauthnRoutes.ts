@@ -32,6 +32,7 @@ import {
 } from '../../auth/sessionStoreFile.js'
 import { bearerToken, requireAuthSession } from '../../auth/webauthnRouteHelpers.js'
 import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
+import { sessionCookieOptions } from '../../auth/sessionCookieOptions.js'
 import {
   consumeChallenge,
   setAuthenticationChallenge,
@@ -341,13 +342,11 @@ export function applyWebAuthnRoutes(app: Express): void {
         console.info(
           `[webauthn] auth ok googleSub=${meta.googleSub} cred=${credentialId.slice(0, 8)}…`,
         )
-        res.cookie(SESSION_COOKIE, sessionId, {
-          httpOnly: true,
-          secure: config.isProd || config.cookieSameSite === 'none',
-          sameSite: config.cookieSameSite,
-          path: '/',
-          maxAge: config.sessionMaxMs,
-        })
+        res.cookie(
+          SESSION_COOKIE,
+          sessionId,
+          sessionCookieOptions(config.sessionMaxMs),
+        )
         res.json({
           success: true,
           message: 'Authentication successful',

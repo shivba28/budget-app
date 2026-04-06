@@ -16,6 +16,10 @@ import {
   updateSessionRecord,
 } from '../../auth/sessionStoreFile.js'
 import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
+import {
+  clearSessionCookieOptions,
+  sessionCookieOptions,
+} from '../../auth/sessionCookieOptions.js'
 import { hasAnyCredential } from '../../auth/credentialStoreFile.js'
 import {
   clearUserPin,
@@ -49,13 +53,6 @@ const baseCookie = {
   secure: config.isProd || config.cookieSameSite === 'none',
   sameSite: config.cookieSameSite,
   path: '/',
-}
-
-const sessionCookie = {
-  httpOnly: true as const,
-  secure: config.isProd || config.cookieSameSite === 'none',
-  sameSite: config.cookieSameSite,
-  path: '/' as const,
 }
 
 export function applyAuthRoutes(app: Express): void {
@@ -174,10 +171,11 @@ export function applyAuthRoutes(app: Express): void {
         googleSub,
         email,
       })
-      res.cookie(SESSION_COOKIE, sessionId, {
-        ...sessionCookie,
-        maxAge: config.sessionMaxMs,
-      })
+      res.cookie(
+        SESSION_COOKIE,
+        sessionId,
+        sessionCookieOptions(config.sessionMaxMs),
+      )
       /** Session is now carried via httpOnly cookie (no token in URL). */
       const frontWithSync = appendQuery(config.frontendUrl, {
         sync: 'ok',
@@ -252,7 +250,7 @@ export function applyAuthRoutes(app: Express): void {
       if (sid) {
         await deleteSession(sid)
       }
-      res.clearCookie(SESSION_COOKIE, sessionCookie)
+      res.clearCookie(SESSION_COOKIE, clearSessionCookieOptions())
       res.status(204).send()
     })()
   })
