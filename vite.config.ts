@@ -30,6 +30,11 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
+        // Critical: never serve the SPA shell for API paths (OAuth callback, auth/me, etc.).
+        // Otherwise the Service Worker can swallow /api/auth/google/callback and you won't get Set-Cookie/redirect headers.
+        workbox: {
+          navigateFallbackDenylist: [/^\/api\//],
+        },
         manifest: {
           name: 'Budget Tracker',
           short_name: 'Budget',
