@@ -10,6 +10,10 @@ function usingDb(): boolean {
   return dbEnabled()
 }
 
+export function sessionStoreKind(): 'pg' | 'file' {
+  return usingDb() ? 'pg' : 'file'
+}
+
 export async function createSession(params: {
   refreshToken: string | null
   googleSub: string

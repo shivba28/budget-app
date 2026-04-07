@@ -11,6 +11,7 @@ import {
   getLatestRefreshTokenForGoogleSub,
   getSession,
   isPinUnlocked,
+  sessionStoreKind,
   setPinVerified,
   touchSessionExpiry,
   updateSessionRecord,
@@ -233,6 +234,7 @@ export function applyAuthRoutes(app: Express): void {
           ...(authMeDebugEnabled()
             ? {
                 authDebug: 'session_unknown_or_expired' as const,
+                sessionStore: sessionStoreKind(),
                 ...(!config.isProd
                   ? {
                       devHint:
