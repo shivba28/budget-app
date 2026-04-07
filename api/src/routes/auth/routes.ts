@@ -14,7 +14,7 @@ import {
   setPinVerified,
   touchSessionExpiry,
   updateSessionRecord,
-} from '../../auth/sessionStoreFile.js'
+} from '../../auth/sessionStore.js'
 import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import {
   apiCookieSecure,
@@ -173,7 +173,7 @@ export function applyAuthRoutes(app: Express): void {
         }
       }
 
-      const sessionId = createSession({
+      const sessionId = await createSession({
         refreshToken: refreshToken ?? null,
         googleSub,
         email,
@@ -222,7 +222,7 @@ export function applyAuthRoutes(app: Express): void {
       return
     }
     void (async () => {
-      const rec = getSession(sid)
+      const rec = await getSession(sid)
       if (!rec) {
         res.json({
           authenticated: false as const,
@@ -249,7 +249,7 @@ export function applyAuthRoutes(app: Express): void {
       const hasPin = Boolean(pinHash)
       const pinConfigured = hasPin || hasPasskeys
       const pinUnlocked = pinConfigured ? isPinUnlocked(rec) : false
-      touchSessionExpiry(sid, { extendPinActivity: false })
+      await touchSessionExpiry(sid, { extendPinActivity: false })
       res.json({
         authenticated: true as const,
         email: rec.email,
@@ -274,32 +274,37 @@ export function applyAuthRoutes(app: Express): void {
 
   /** Extends PIN inactivity window when already unlocked (via {@link touchSessionExpiry} in requireAuthSession). */
   app.post('/api/auth/pin/heartbeat', (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
-    if (!auth) return
-    res.status(204).send()
+    void (async () => {
+      const auth = await requireAuthSession(req, res)
+      if (!auth) return
+      res.status(204).send()
+    })()
   })
 
-  function requireAuthSession(
+  async function requireAuthSession(
     req: Request,
     res: Response,
-  ): { sid: string; rec: NonNullable<ReturnType<typeof getSession>> } | null {
+  ): Promise<{
+    sid: string
+    rec: NonNullable<Awaited<ReturnType<typeof getSession>>>
+  } | null> {
     const sid = sessionIdFromRequest(req)
     if (!sid) {
       res.status(401).json({ error: 'Unauthorized' })
       return null
     }
-    const rec = getSession(sid)
+    const rec = await getSession(sid)
     if (!rec) {
       res.status(401).json({ error: 'Unauthorized' })
       return null
     }
-    touchSessionExpiry(sid)
-    const fresh = getSession(sid)
+    await touchSessionExpiry(sid)
+    const fresh = await getSession(sid)
     return { sid, rec: fresh ?? rec }
   }
 
   app.post('/api/auth/pin/set', async (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
+    const auth = await requireAuthSession(req, res)
     if (!auth) return
     const { sid, rec } = auth
     if (getUserPinHash(rec.googleSub)) {
@@ -316,12 +321,12 @@ export function applyAuthRoutes(app: Express): void {
     }
     const h = await hashPin(pin)
     setUserPinHash(rec.googleSub, h)
-    setPinVerified(sid)
+    await setPinVerified(sid)
     res.status(204).send()
   })
 
   app.post('/api/auth/pin/verify', async (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
+    const auth = await requireAuthSession(req, res)
     if (!auth) return
     const { sid, rec } = auth
     const hash = getUserPinHash(rec.googleSub)
@@ -349,19 +354,19 @@ export function applyAuthRoutes(app: Express): void {
         failures >= config.maxPinAttempts
           ? new Date(Date.now() + config.pinLockoutMs).toISOString()
           : null
-      updateSessionRecord(sid, {
+      await updateSessionRecord(sid, {
         pinFailures: lock ? 0 : failures,
         pinLockedUntil: lock,
       })
       res.status(401).json({ error: 'Incorrect PIN' })
       return
     }
-    setPinVerified(sid)
+    await setPinVerified(sid)
     res.status(204).send()
   })
 
   app.post('/api/auth/pin/change', async (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
+    const auth = await requireAuthSession(req, res)
     if (!auth) return
     const { sid, rec } = auth
     const hash = getUserPinHash(rec.googleSub)
@@ -396,7 +401,7 @@ export function applyAuthRoutes(app: Express): void {
       return
     }
     setUserPinHash(rec.googleSub, await hashPin(newPin))
-    setPinVerified(sid)
+    await setPinVerified(sid)
     res.status(204).send()
   })
 }

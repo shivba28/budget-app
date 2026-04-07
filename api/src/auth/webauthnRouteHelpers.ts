@@ -1,24 +1,27 @@
 import type { Request, Response } from 'express'
-import { getSession, touchSessionExpiry } from './sessionStoreFile.js'
+import { getSession, touchSessionExpiry } from './sessionStore.js'
 import { bearerToken, sessionIdFromRequest } from './bearer.js'
 
 export { bearerToken } from './bearer.js'
 
-export function requireAuthSession(
+export async function requireAuthSession(
   req: Request,
   res: Response,
-): { sid: string; rec: NonNullable<ReturnType<typeof getSession>> } | null {
+): Promise<{
+  sid: string
+  rec: NonNullable<Awaited<ReturnType<typeof getSession>>>
+} | null> {
   const sid = sessionIdFromRequest(req)
   if (!sid) {
     res.status(401).json({ error: 'Unauthorized' })
     return null
   }
-  const rec = getSession(sid)
+  const rec = await getSession(sid)
   if (!rec) {
     res.status(401).json({ error: 'Unauthorized' })
     return null
   }
-  touchSessionExpiry(sid)
-  const fresh = getSession(sid)
+  await touchSessionExpiry(sid)
+  const fresh = await getSession(sid)
   return { sid, rec: fresh ?? rec }
 }

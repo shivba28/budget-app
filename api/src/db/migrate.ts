@@ -67,10 +67,25 @@ CREATE TABLE IF NOT EXISTS budgets (
   UNIQUE(user_id, category, month)
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  encrypted_refresh_token TEXT NOT NULL,
+  google_sub TEXT NOT NULL,
+  email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  pin_verified_until TIMESTAMPTZ NULL,
+  pin_last_activity_at TIMESTAMPTZ NULL,
+  pin_failures INTEGER NOT NULL DEFAULT 0,
+  pin_locked_until TIMESTAMPTZ NULL,
+  auth_method TEXT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions (user_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_account ON transactions (user_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts (user_id);
 CREATE INDEX IF NOT EXISTS idx_trips_user ON trips (user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_google_sub_expires ON sessions (google_sub, expires_at DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_trips_user_name_start ON trips (user_id, name, start_date);
 

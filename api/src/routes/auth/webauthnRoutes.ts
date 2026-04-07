@@ -29,7 +29,7 @@ import {
   getSession,
   isPinUnlocked,
   setSecondFactorVerified,
-} from '../../auth/sessionStoreFile.js'
+} from '../../auth/sessionStore.js'
 import { bearerToken, requireAuthSession } from '../../auth/webauthnRouteHelpers.js'
 import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import { sessionCookieOptions } from '../../auth/sessionCookieOptions.js'
@@ -57,14 +57,14 @@ function clientIp(req: Request): string {
   return req.socket.remoteAddress ?? 'unknown'
 }
 
-function resolveGoogleSub(
+async function resolveGoogleSub(
   req: Request,
   res: Response,
   bodySub?: unknown,
-): string | null {
+): Promise<string | null> {
   const sid = sessionIdFromRequest(req)
   if (sid) {
-    const rec = getSession(sid)
+    const rec = await getSession(sid)
     if (rec) return rec.googleSub
   }
   if (typeof bodySub === 'string' && bodySub.trim()) return bodySub.trim()
@@ -74,33 +74,37 @@ function resolveGoogleSub(
 
 export function applyWebAuthnRoutes(app: Express): void {
   app.get('/api/auth/webauthn/register/check', (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
-    if (!auth) return
-    const sum = credentialSummary(auth.rec.googleSub)
-    res.json({
-      hasPasskeys: sum.hasPasskeys,
-      credentialCount: sum.credentialCount,
-      lastUsedAt: sum.lastUsedAt,
-    })
+    void (async () => {
+      const auth = await requireAuthSession(req, res)
+      if (!auth) return
+      const sum = credentialSummary(auth.rec.googleSub)
+      res.json({
+        hasPasskeys: sum.hasPasskeys,
+        credentialCount: sum.credentialCount,
+        lastUsedAt: sum.lastUsedAt,
+      })
+    })()
   })
 
   app.get('/api/auth/webauthn/credentials', (req: Request, res: Response) => {
-    const auth = requireAuthSession(req, res)
-    if (!auth) return
-    const list = listCredentials(auth.rec.googleSub).map((c) => ({
-      credentialId: c.credentialId,
-      device: c.device,
-      name: c.name,
-      createdAt: c.createdAt,
-      lastUsedAt: c.lastUsedAt,
-    }))
-    res.json({ credentials: list })
+    void (async () => {
+      const auth = await requireAuthSession(req, res)
+      if (!auth) return
+      const list = listCredentials(auth.rec.googleSub).map((c) => ({
+        credentialId: c.credentialId,
+        device: c.device,
+        name: c.name,
+        createdAt: c.createdAt,
+        lastUsedAt: c.lastUsedAt,
+      }))
+      res.json({ credentials: list })
+    })()
   })
 
   app.post(
     '/api/auth/webauthn/register/start',
     async (req: Request, res: Response) => {
-      const auth = requireAuthSession(req, res)
+      const auth = await requireAuthSession(req, res)
       if (!auth) return
       const { rec } = auth
       const body = req.body as { device?: unknown }
@@ -146,7 +150,7 @@ export function applyWebAuthnRoutes(app: Express): void {
   app.post(
     '/api/auth/webauthn/register/verify',
     async (req: Request, res: Response) => {
-      const auth = requireAuthSession(req, res)
+      const auth = await requireAuthSession(req, res)
       if (!auth) return
       const { sid, rec } = auth
       const response = req.body as RegistrationResponseJSON
@@ -196,7 +200,7 @@ export function applyWebAuthnRoutes(app: Express): void {
             : [],
           device: meta.deviceLabel,
         })
-        setSecondFactorVerified(sid, 'passkey')
+        await setSecondFactorVerified(sid, 'passkey')
         console.info(
           `[webauthn] registered credential googleSub=${rec.googleSub} id=${info.credentialID.slice(0, 8)}…`,
         )
@@ -222,7 +226,7 @@ export function applyWebAuthnRoutes(app: Express): void {
     '/api/auth/webauthn/authenticate/start',
     async (req: Request, res: Response) => {
       const body = req.body as { googleSub?: unknown }
-      const googleSub = resolveGoogleSub(req, res, body.googleSub)
+      const googleSub = await resolveGoogleSub(req, res, body.googleSub)
       if (!googleSub) return
       const list = listCredentials(googleSub)
       if (list.length === 0) {
@@ -323,21 +327,21 @@ export function applyWebAuthnRoutes(app: Express): void {
         updateCredentialAfterAuth(meta.googleSub, credentialId, newCounter)
         const refreshToken = await getLatestRefreshTokenForGoogleSub(meta.googleSub)
         const token = sessionIdFromRequest(req)
-        const fromSession = token ? getSession(token) : null
+        const fromSession = token ? await getSession(token) : null
         const email =
-          fromSession?.email ?? getLatestEmailForGoogleSub(meta.googleSub)
+          fromSession?.email ?? (await getLatestEmailForGoogleSub(meta.googleSub))
         if (!email) {
           res.status(401).json({ error: 'Unknown user email; sign in with Google.' })
           return
         }
         const oldSid = sessionIdFromRequest(req)
         if (oldSid) await deleteSession(oldSid)
-        const sessionId = createSession({
+        const sessionId = await createSession({
           refreshToken: refreshToken ?? null,
           googleSub: meta.googleSub,
           email,
         })
-        setSecondFactorVerified(sessionId, 'passkey')
+        await setSecondFactorVerified(sessionId, 'passkey')
         clearWebAuthnAuthFailures(meta.googleSub, ip)
         console.info(
           `[webauthn] auth ok googleSub=${meta.googleSub} cred=${credentialId.slice(0, 8)}…`,
@@ -369,23 +373,25 @@ export function applyWebAuthnRoutes(app: Express): void {
   app.delete(
     '/api/auth/webauthn/credential/:credentialId',
     (req: Request, res: Response) => {
-      const auth = requireAuthSession(req, res)
-      if (!auth) return
-      if (!isPinUnlocked(auth.rec)) {
-        res.status(403).json({ error: 'Unlock the app before managing passkeys.' })
-        return
-      }
-      const id = req.params['credentialId']
-      if (!id) {
-        res.status(400).json({ error: 'Missing credential id' })
-        return
-      }
-      const ok = removeCredential(auth.rec.googleSub, decodeURIComponent(id))
-      if (!ok) {
-        res.status(404).json({ error: 'Credential not found' })
-        return
-      }
-      res.status(204).send()
+      void (async () => {
+        const auth = await requireAuthSession(req, res)
+        if (!auth) return
+        if (!isPinUnlocked(auth.rec)) {
+          res.status(403).json({ error: 'Unlock the app before managing passkeys.' })
+          return
+        }
+        const id = req.params['credentialId']
+        if (!id) {
+          res.status(400).json({ error: 'Missing credential id' })
+          return
+        }
+        const ok = removeCredential(auth.rec.googleSub, decodeURIComponent(id))
+        if (!ok) {
+          res.status(404).json({ error: 'Credential not found' })
+          return
+        }
+        res.status(204).send()
+      })()
     },
   )
 }

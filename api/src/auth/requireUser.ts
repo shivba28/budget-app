@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express'
 import { dbEnabled } from '../db/pool.js'
 import { sessionIdFromRequest } from './bearer.js'
-import { getSession, touchSessionExpiry } from './sessionStoreFile.js'
+import { getSession, touchSessionExpiry } from './sessionStore.js'
 import { upsertUser } from '../db/users.js'
 
 export type AuthedRequest = Request & {
@@ -17,25 +17,24 @@ export function requireUserSession(
     next()
     return
   }
-  const sid = sessionIdFromRequest(req)
-  if (!sid) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-  const rec = getSession(sid)
-  if (!rec) {
-    res.status(401).json({ error: 'Unauthorized' })
-    return
-  }
-  touchSessionExpiry(sid)
-  const auth = {
-    userId: rec.googleSub,
-    email: rec.email,
-    sessionId: sid,
-  }
-  ;(req as AuthedRequest).auth = auth
-
   void (async () => {
+    const sid = sessionIdFromRequest(req)
+    if (!sid) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const rec = await getSession(sid)
+    if (!rec) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    await touchSessionExpiry(sid)
+    const auth = {
+      userId: rec.googleSub,
+      email: rec.email,
+      sessionId: sid,
+    }
+    ;(req as AuthedRequest).auth = auth
     try {
       /**
        * If the user logged in while DATABASE_URL was unset, they can have a valid session
