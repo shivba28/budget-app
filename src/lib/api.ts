@@ -107,8 +107,9 @@ export interface SummaryPieSegment {
 export async function registerEnrollmentToken(
   enrollmentId: string,
   token: string,
+  institutionName?: string | null,
 ): Promise<void> {
-  await api.post('/auth/token', { token, enrollmentId })
+  await api.post('/auth/token', { token, enrollmentId, institutionName })
 }
 
 /** @deprecated Use registerEnrollmentToken */
@@ -339,7 +340,11 @@ export async function handleTellerConnectSuccess(
 ): Promise<ConnectedAccountInfo | null> {
   const token = enrollment.accessToken
   const enrollmentId = enrollment.enrollment.id
-  await registerEnrollmentToken(enrollmentId, token)
+  const institutionName =
+    enrollment.institution && typeof enrollment.institution.name === 'string'
+      ? enrollment.institution.name
+      : null
+  await registerEnrollmentToken(enrollmentId, token, institutionName)
   const accounts = await fetchAccounts()
   storage.saveAccounts(accounts)
   storage.clearTransactions()

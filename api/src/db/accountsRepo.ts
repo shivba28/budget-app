@@ -28,6 +28,18 @@ export async function upsertAccount(params: {
   )
 }
 
+export async function getAccountTypeForUser(params: {
+  userId: string
+  accountId: string
+}): Promise<string | null> {
+  const { rows } = await query<{ type: string | null }>(
+    `SELECT type FROM accounts WHERE user_id = $1 AND id = $2 LIMIT 1`,
+    [params.userId, params.accountId],
+  )
+  const t = rows[0]?.type
+  return typeof t === 'string' && t.trim() ? t.trim() : null
+}
+
 export async function getLastSeenTxIdForAccount(
   userId: string,
   accountId: string,

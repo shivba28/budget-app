@@ -80,6 +80,7 @@ export function unwrapTransactionList(data: unknown): unknown[] {
 export function parseTellerTransaction(
   raw: unknown,
   fallbackAccountId: string,
+  opts?: { accountType?: string | null } | null,
 ): {
   id: string
   accountId: string
@@ -107,22 +108,13 @@ export function parseTellerTransaction(
     if (Number.isFinite(n)) amount = n
   }
 
-  // Normalize Teller direction across account types:
-  // App convention: amount > 0 = outflow/spend, amount < 0 = inflow/income.
-  // Teller commonly provides a `type` field ("debit"/"credit") for transactions.
-  const rawType =
-    typeof r.type === 'string'
-      ? r.type
-      : typeof (r as any).transaction_type === 'string'
-        ? ((r as any).transaction_type as string)
-        : typeof (r as any).transactionType === 'string'
-          ? ((r as any).transactionType as string)
-          : ''
-  const t = rawType.trim().toLowerCase()
-  if (t === 'debit') {
-    amount = Math.abs(amount)
-  } else if (t === 'credit') {
-    amount = -Math.abs(amount)
+  // Normalize direction for depository accounts if Teller sign is inverted for that feed.
+  // App convention (used by UI + analytics): amount > 0 = outflow/spend, amount < 0 = inflow/income.
+  // Observed: some Teller depository accounts return the opposite sign (credits positive, debits negative),
+  // while credit accounts match the convention. Use account type from the accounts table.
+  const accountType = opts?.accountType?.trim().toLowerCase() ?? ''
+  if (accountType === 'depository') {
+    amount = -amount
   }
 
   let date = ''

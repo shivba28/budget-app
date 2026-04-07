@@ -11,6 +11,7 @@ import {
 import {
   getEnrollmentForAccount,
   getLastSeenTxIdForAccount,
+  getAccountTypeForUser,
   setLastSeenTxIdForAccount,
   upsertAccount,
 } from '../../db/accountsRepo.js'
@@ -41,7 +42,11 @@ export function applyTellerRoutes(app: Express): void {
   })
 
   r.post('/auth/token', async (req: Request, res: Response) => {
-    const body = req.body as { token?: unknown; enrollmentId?: unknown }
+    const body = req.body as {
+      token?: unknown
+      enrollmentId?: unknown
+      institutionName?: unknown
+    }
     const token = typeof body.token === 'string' ? body.token : ''
     let enrollmentId =
       typeof body.enrollmentId === 'string' ? body.enrollmentId.trim() : ''
@@ -50,6 +55,10 @@ export function applyTellerRoutes(app: Express): void {
       res.status(400).json({ error: 'Missing token' })
       return
     }
+    const institutionName =
+      typeof body.institutionName === 'string' && body.institutionName.trim()
+        ? body.institutionName.trim().slice(0, 200)
+        : null
     if (dbEnabled()) {
       const userId = getUserId(req)
       if (!userId) {
@@ -61,7 +70,7 @@ export function applyTellerRoutes(app: Express): void {
           userId,
           enrollmentId,
           accessToken: token.trim(),
-          institutionName: null,
+          institutionName,
         })
       } catch (e) {
         console.error('[teller] upsert enrollment', e)
@@ -261,11 +270,13 @@ export function applyTellerRoutes(app: Express): void {
       const data = { transactions: merged }
 
       if (shouldPersist && userId) {
+        const accountTypeRaw = await getAccountTypeForUser({ userId, accountId })
+        const accountType = accountTypeRaw?.toLowerCase() ?? null
         const list = unwrapTransactionList(data)
         const parsed: NonNullable<ReturnType<typeof parseTellerTransaction>>[] =
           []
         for (const raw of list) {
-          const p = parseTellerTransaction(raw, accountId)
+          const p = parseTellerTransaction(raw, accountId, { accountType })
           if (p) {
             parsed.push(p)
             await upsertTransactionFromTeller({ userId, ...p })

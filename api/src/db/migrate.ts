@@ -17,6 +17,20 @@ CREATE TABLE IF NOT EXISTS teller_enrollments (
   PRIMARY KEY (user_id, enrollment_id)
 );
 
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL DEFAULT 0,
+  transports TEXT[] NOT NULL DEFAULT '{}'::text[],
+  device TEXT NOT NULL,
+  name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, credential_id),
+  UNIQUE (credential_id)
+);
+
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -86,6 +100,8 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_account ON transactions (user_i
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts (user_id);
 CREATE INDEX IF NOT EXISTS idx_trips_user ON trips (user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_google_sub_expires ON sessions (google_sub, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials (user_id);
+CREATE INDEX IF NOT EXISTS idx_webauthn_last_used ON webauthn_credentials (user_id, last_used_at DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_trips_user_name_start ON trips (user_id, name, start_date);
 

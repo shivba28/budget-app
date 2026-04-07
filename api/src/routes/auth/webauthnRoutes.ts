@@ -20,7 +20,7 @@ import {
   removeCredential,
   toAuthenticatorDevice,
   updateCredentialAfterAuth,
-} from '../../auth/credentialStoreFile.js'
+} from '../../auth/credentialStore.js'
 import {
   createSession,
   deleteSession,
@@ -77,7 +77,7 @@ export function applyWebAuthnRoutes(app: Express): void {
     void (async () => {
       const auth = await requireAuthSession(req, res)
       if (!auth) return
-      const sum = credentialSummary(auth.rec.googleSub)
+      const sum = await credentialSummary(auth.rec.googleSub)
       res.json({
         hasPasskeys: sum.hasPasskeys,
         credentialCount: sum.credentialCount,
@@ -90,7 +90,7 @@ export function applyWebAuthnRoutes(app: Express): void {
     void (async () => {
       const auth = await requireAuthSession(req, res)
       if (!auth) return
-      const list = listCredentials(auth.rec.googleSub).map((c) => ({
+      const list = (await listCredentials(auth.rec.googleSub)).map((c) => ({
         credentialId: c.credentialId,
         device: c.device,
         name: c.name,
@@ -113,7 +113,7 @@ export function applyWebAuthnRoutes(app: Express): void {
           ? body.device.trim().slice(0, 120)
           : 'This device'
       try {
-        const excludeCredentials = listCredentials(rec.googleSub).map((c) => ({
+        const excludeCredentials = (await listCredentials(rec.googleSub)).map((c) => ({
           id: c.credentialId,
           transports: c.transports as ('ble' | 'hybrid' | 'internal' | 'nfc' | 'smart-card' | 'usb')[],
         }))
@@ -191,7 +191,7 @@ export function applyWebAuthnRoutes(app: Express): void {
         const publicKeyB64 = Buffer.from(info.credentialPublicKey).toString(
           'base64url',
         )
-        addCredential(rec.googleSub, {
+        await addCredential(rec.googleSub, {
           credentialId: info.credentialID,
           publicKey: publicKeyB64,
           counter: info.counter,
@@ -228,7 +228,7 @@ export function applyWebAuthnRoutes(app: Express): void {
       const body = req.body as { googleSub?: unknown }
       const googleSub = await resolveGoogleSub(req, res, body.googleSub)
       if (!googleSub) return
-      const list = listCredentials(googleSub)
+      const list = await listCredentials(googleSub)
       if (list.length === 0) {
         res.status(404).json({ error: 'No passkeys for this account' })
         return
@@ -284,7 +284,7 @@ export function applyWebAuthnRoutes(app: Express): void {
       }
       const credentialId =
         typeof response.id === 'string' ? response.id : ''
-      const found = findCredentialById(credentialId)
+      const found = await findCredentialById(credentialId)
       if (!found || found.googleSub !== meta.googleSub) {
         res.status(401).json({ error: 'Credential not found' })
         return
@@ -324,7 +324,7 @@ export function applyWebAuthnRoutes(app: Express): void {
           res.status(401).json({ error: 'Security check failed' })
           return
         }
-        updateCredentialAfterAuth(meta.googleSub, credentialId, newCounter)
+        await updateCredentialAfterAuth(meta.googleSub, credentialId, newCounter)
         const refreshToken = await getLatestRefreshTokenForGoogleSub(meta.googleSub)
         const token = sessionIdFromRequest(req)
         const fromSession = token ? await getSession(token) : null
@@ -385,7 +385,7 @@ export function applyWebAuthnRoutes(app: Express): void {
           res.status(400).json({ error: 'Missing credential id' })
           return
         }
-        const ok = removeCredential(auth.rec.googleSub, decodeURIComponent(id))
+        const ok = await removeCredential(auth.rec.googleSub, decodeURIComponent(id))
         if (!ok) {
           res.status(404).json({ error: 'Credential not found' })
           return

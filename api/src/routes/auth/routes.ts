@@ -22,7 +22,7 @@ import {
   clearSessionCookieOptions,
   sessionCookieOptions,
 } from '../../auth/sessionCookieOptions.js'
-import { hasAnyCredential } from '../../auth/credentialStoreFile.js'
+import { hasAnyCredential } from '../../auth/credentialStore.js'
 import {
   clearUserPin,
   getUserPinHash,
@@ -328,7 +328,7 @@ export function applyAuthRoutes(app: Express): void {
         return
       }
       const pinHash = getUserPinHash(rec.googleSub)
-      const hasPasskeys = hasAnyCredential(rec.googleSub)
+      const hasPasskeys = await hasAnyCredential(rec.googleSub)
       const hasPin = Boolean(pinHash)
       const pinConfigured = hasPin || hasPasskeys
       const pinUnlocked = pinConfigured ? isPinUnlocked(rec) : false
