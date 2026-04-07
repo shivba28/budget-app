@@ -1,5 +1,7 @@
 import { dbEnabled } from '../db/pool.js'
 
+import type { AuthenticatorDevice } from '@simplewebauthn/types'
+
 import * as file from './credentialStoreFile.js'
 import * as pg from './credentialStorePg.js'
 
@@ -28,7 +30,7 @@ export async function findCredentialById(
 
 export function toAuthenticatorDevice(
   c: StoredWebAuthnCredential,
-): file.AuthenticatorDevice {
+): AuthenticatorDevice {
   return file.toAuthenticatorDevice(c)
 }
 

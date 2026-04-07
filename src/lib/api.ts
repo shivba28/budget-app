@@ -340,10 +340,17 @@ export async function handleTellerConnectSuccess(
 ): Promise<ConnectedAccountInfo | null> {
   const token = enrollment.accessToken
   const enrollmentId = enrollment.enrollment.id
-  const institutionName =
-    enrollment.institution && typeof enrollment.institution.name === 'string'
-      ? enrollment.institution.name
-      : null
+  const institutionName = (() => {
+    const any = enrollment as unknown as {
+      institution?: { name?: unknown }
+      enrollment?: { institution?: { name?: unknown } }
+    }
+    const top = any.institution?.name
+    if (typeof top === 'string' && top.trim()) return top
+    const nested = any.enrollment?.institution?.name
+    if (typeof nested === 'string' && nested.trim()) return nested
+    return null
+  })()
   await registerEnrollmentToken(enrollmentId, token, institutionName)
   const accounts = await fetchAccounts()
   storage.saveAccounts(accounts)
