@@ -188,6 +188,7 @@ export function applyAuthRoutes(app: Express): void {
       const frontWithSync = appendQuery(config.frontendUrl, {
         sync: 'ok',
         ...(pinResetIntent ? { pin_reset: '1' } : {}),
+        ...(authMeDebugEnabled() ? { sid_prefix: sessionId.slice(0, 8) } : {}),
       })
       res.redirect(302, frontWithSync)
     } catch (err) {
