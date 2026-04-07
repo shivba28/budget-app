@@ -37,9 +37,11 @@ app.use(express.json({ limit: '12mb' }))
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true)
+      // Missing Origin (some proxies/tools): still emit a concrete ACAO so credentialed
+      // responses are valid. `true` makes the cors package reflect `undefined` → broken header.
+      if (!origin) return callback(null, config.frontendUrl)
       const ok = config.frontendOrigins.some((a) => originMatches(a, origin))
-      return callback(null, ok)
+      return callback(null, ok ? origin : false)
     },
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],

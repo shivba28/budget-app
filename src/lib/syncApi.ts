@@ -70,6 +70,8 @@ export type AuthMeResponse =
       pinUnlocked: boolean
       hasPasskeys: boolean
       hasPin: boolean
+      /** Server diagnostic: missing cookie vs unknown session (dev always; prod if AUTH_ME_DEBUG). */
+      authDebug?: 'no_budget_sid_cookie' | 'session_unknown_or_expired'
       /** Present in development when the server explains missing/invalid session */
       devHint?: string
     }

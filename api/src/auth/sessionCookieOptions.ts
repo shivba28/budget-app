@@ -8,9 +8,18 @@ const partitionedEnabled = (): boolean => {
   return true
 }
 
+/** Shared with OAuth state cookies so options stay aligned with the session cookie. */
+export function apiCookieSecure(): boolean {
+  if (process.env['COOKIE_SECURE']?.trim().toLowerCase() === 'false') {
+    return false
+  }
+  // SameSite=None requires Secure; on http://localhost the cookie is dropped unless you use HTTPS or COOKIE_SECURE=false (dev only).
+  return config.isProd || config.cookieSameSite === 'none'
+}
+
 const sessionCookieBase = (): Omit<CookieOptions, 'maxAge'> => ({
   httpOnly: true,
-  secure: config.isProd || config.cookieSameSite === 'none',
+  secure: apiCookieSecure(),
   sameSite: config.cookieSameSite,
   path: '/',
   ...(partitionedEnabled() ? { partitioned: true as const } : {}),

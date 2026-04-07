@@ -17,6 +17,7 @@ import {
 } from '../../auth/sessionStoreFile.js'
 import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import {
+  apiCookieSecure,
   clearSessionCookieOptions,
   sessionCookieOptions,
 } from '../../auth/sessionCookieOptions.js'
@@ -31,6 +32,12 @@ import { upsertUser } from '../../db/users.js'
 
 const OAUTH_STATE_COOKIE = 'budget_oauth_state'
 const OAUTH_INTENT_COOKIE = 'budget_oauth_intent'
+
+function authMeDebugEnabled(): boolean {
+  if (!config.isProd) return true
+  const v = process.env['AUTH_ME_DEBUG']?.trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes'
+}
 
 function appendQuery(url: string, params: Record<string, string>): string {
   const u = new URL(url)
@@ -50,7 +57,7 @@ function oauthClient(): OAuth2Client {
 
 const baseCookie = {
   httpOnly: true,
-  secure: config.isProd || config.cookieSameSite === 'none',
+  secure: apiCookieSecure(),
   sameSite: config.cookieSameSite,
   path: '/',
 }
@@ -200,10 +207,15 @@ export function applyAuthRoutes(app: Express): void {
         pinUnlocked: false,
         hasPasskeys: false,
         hasPin: false,
-        ...(!config.isProd
+        ...(authMeDebugEnabled()
           ? {
-              devHint:
-                'No session found. The app uses an httpOnly cookie session; opening this URL in the address bar is fine, but you must sign in first (and allow cookies).',
+              authDebug: 'no_budget_sid_cookie' as const,
+              ...(!config.isProd
+                ? {
+                    devHint:
+                      'No budget_sid cookie on this request. For cross-origin (Vercel + API host): COOKIE_SAMESITE=none, HTTPS, FRONTEND_ORIGIN must match the app URL, and VITE_API_URL must point at this API. On http://localhost with COOKIE_SAMESITE=none, set COOKIE_SECURE=false or use the Vite /api proxy with VITE_API_URL unset.',
+                  }
+                : {}),
             }
           : {}),
       })
@@ -218,10 +230,15 @@ export function applyAuthRoutes(app: Express): void {
           pinUnlocked: false,
           hasPasskeys: false,
           hasPin: false,
-          ...(!config.isProd
+          ...(authMeDebugEnabled()
             ? {
-                devHint:
-                  'Bearer token unknown or session expired. Sign in with Google again from the app.',
+                authDebug: 'session_unknown_or_expired' as const,
+                ...(!config.isProd
+                  ? {
+                      devHint:
+                        'Cookie was sent but this session id is not in the server store (expired row, or API lost sessions.json e.g. Render redeploy without persistent disk). Sign in with Google again.',
+                    }
+                  : {}),
               }
             : {}),
         })
