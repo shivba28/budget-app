@@ -480,7 +480,7 @@ export function Transactions(): ReactElement {
               : syncProgress?.phase === 'finalize'
                 ? 'Finalizing…'
                 : syncHint === 'full'
-                  ? 'No quick sync data yet — performing a full sync. This can take a bit.'
+                  ? 'Performing a sync...'
                   : 'Syncing latest transactions…'}{' '}
             {syncProgress && syncProgress.total > 0 ? (
               <span className="tx-sync-status__detail">

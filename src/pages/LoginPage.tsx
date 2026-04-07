@@ -53,9 +53,7 @@ export function LoginPage(): ReactElement {
                 Budget Tracker
               </CardTitle>
               <CardDescription className="text-base leading-relaxed">
-                Sign in with Google to use your budget on any device. Accounts,
-                transactions, trips, and budgets stay in sync on our servers - link
-                your bank after you sign in.
+                Sign in with Google to start using the app.
               </CardDescription>
             </div>
           </CardHeader>
@@ -84,9 +82,7 @@ export function LoginPage(): ReactElement {
               Continue with Google
             </Button>
             <p className="text-center text-xs leading-relaxed text-muted-foreground">
-              You will set a short app code or passkey next so only you can open
-              your finances on this device. Sessions use a secure cookie, not
-              passwords stored in the browser.
+              You’ll unlock with a passkey or app code on this device.
             </p>
           </CardContent>
         </Card>

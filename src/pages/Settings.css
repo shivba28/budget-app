@@ -148,6 +148,11 @@
   cursor: pointer;
 }
 
+/* Make checked state more visible than the default light fill. */
+.settings-account-include__input:checked {
+  accent-color: var(--accent-primary-hover, #1d4ed8);
+}
+
 .settings-account-include__body {
   display: flex;
   flex-direction: column;
