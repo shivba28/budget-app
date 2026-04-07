@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,6 +24,7 @@ export function UnlockPinPage(): ReactElement {
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const autoPasskeyAttempted = useRef(false)
 
   useEffect(() => {
     void refresh()
@@ -98,6 +99,16 @@ export function UnlockPinPage(): ReactElement {
 
   const canPasskey = hasPasskeys && webAuthnSupported()
 
+  useEffect(() => {
+    if (status !== 'need_unlock') return
+    if (!canPasskey) return
+    if (busy) return
+    if (autoPasskeyAttempted.current) return
+    autoPasskeyAttempted.current = true
+    void onPasskeyUnlock()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, canPasskey])
+
   return (
     <main className="page page--fill flex min-h-0 flex-1 flex-col justify-center px-4 py-8">
       <div className="mx-auto w-full max-w-sm">
@@ -121,7 +132,11 @@ export function UnlockPinPage(): ReactElement {
                   disabled={busy}
                   onClick={() => void onPasskeyUnlock()}
                 >
-                  {busy ? 'Waiting…' : 'Unlock with passkey'}
+                  {busy
+                    ? 'Waiting…'
+                    : error
+                      ? 'Try passkey again'
+                      : 'Unlock with passkey'}
                 </Button>
               </div>
             ) : null}

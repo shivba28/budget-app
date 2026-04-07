@@ -106,6 +106,25 @@ export function parseTellerTransaction(
     const n = parseFloat(r.amount)
     if (Number.isFinite(n)) amount = n
   }
+
+  // Normalize Teller direction across account types:
+  // App convention: amount > 0 = outflow/spend, amount < 0 = inflow/income.
+  // Teller commonly provides a `type` field ("debit"/"credit") for transactions.
+  const rawType =
+    typeof r.type === 'string'
+      ? r.type
+      : typeof (r as any).transaction_type === 'string'
+        ? ((r as any).transaction_type as string)
+        : typeof (r as any).transactionType === 'string'
+          ? ((r as any).transactionType as string)
+          : ''
+  const t = rawType.trim().toLowerCase()
+  if (t === 'debit') {
+    amount = Math.abs(amount)
+  } else if (t === 'credit') {
+    amount = -Math.abs(amount)
+  }
+
   let date = ''
   if (typeof r.date === 'string') date = r.date.slice(0, 10)
   let description = 'Transaction'

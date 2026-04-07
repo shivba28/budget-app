@@ -34,6 +34,9 @@ import { upsertUser } from '../../db/users.js'
 const OAUTH_STATE_COOKIE = 'budget_oauth_state'
 const OAUTH_INTENT_COOKIE = 'budget_oauth_intent'
 
+let lastDevAuthMintFailureAt = 0
+let devAuthMintFailureCount = 0
+
 function authMeDebugEnabled(): boolean {
   if (!config.isProd) return true
   const v = process.env['AUTH_ME_DEBUG']?.trim().toLowerCase()
@@ -207,7 +210,70 @@ export function applyAuthRoutes(app: Express): void {
         ? String(anyReq.cookies?.[SESSION_COOKIE])
         : null
     const bearerSid = bearerToken(req)
-    const sid = sessionIdFromRequest(req)
+    let sid = sessionIdFromRequest(req)
+
+    // Development bypass: if no session yet, mint one for a fixed dev user.
+    if (!sid && !config.isProd && config.devAuthEmail && config.devAuthSub) {
+      // If DB is down, avoid hanging every /me request on repeated session writes.
+      const backoffMs = Math.min(60_000, 1_000 * Math.pow(2, devAuthMintFailureCount))
+      if (Date.now() - lastDevAuthMintFailureAt < backoffMs) {
+        res.json({
+          authenticated: false as const,
+          pinConfigured: false,
+          pinUnlocked: false,
+          hasPasskeys: false,
+          hasPin: false,
+          ...(authMeDebugEnabled()
+            ? {
+                devHint:
+                  'DEV_AUTH_EMAIL is set, but dev session mint is temporarily backed off due to repeated failures (likely DB connectivity). Check DATABASE_URL / network, or unset DATABASE_URL to use file sessions in dev.',
+              }
+            : {}),
+        })
+        return
+      }
+      void (async () => {
+        try {
+          const sessionId = await createSession({
+            refreshToken: null,
+            googleSub: config.devAuthSub,
+            email: config.devAuthEmail,
+          })
+          res.cookie(
+            SESSION_COOKIE,
+            sessionId,
+            sessionCookieOptions(config.sessionMaxMs),
+          )
+          const hasPasskeys = hasAnyCredential(config.devAuthSub)
+          const pinHash = getUserPinHash(config.devAuthSub)
+          const hasPin = Boolean(pinHash)
+          const pinConfigured = hasPin || hasPasskeys
+          lastDevAuthMintFailureAt = 0
+          devAuthMintFailureCount = 0
+          res.json({
+            authenticated: true as const,
+            email: config.devAuthEmail,
+            pinConfigured,
+            pinUnlocked: false,
+            hasPasskeys,
+            hasPin,
+          })
+        } catch (e) {
+          console.error('[api/auth/me] dev auth mint failed', e)
+          lastDevAuthMintFailureAt = Date.now()
+          devAuthMintFailureCount = Math.min(10, devAuthMintFailureCount + 1)
+          res.json({
+            authenticated: false as const,
+            pinConfigured: false,
+            pinUnlocked: false,
+            hasPasskeys: false,
+            hasPin: false,
+          })
+        }
+      })()
+      return
+    }
+
     if (!sid) {
       res.json({
         authenticated: false as const,

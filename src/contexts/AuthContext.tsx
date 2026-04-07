@@ -34,6 +34,9 @@ type AuthContextValue = {
   readonly onUnlocked: () => Promise<void>
   readonly lastSyncMessage: string | null
   readonly clearSyncMessage: () => void
+  /** Client-side screen lock due to inactivity (independent of server idle lock). */
+  readonly clientLocked: boolean
+  readonly clearClientLock: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -51,8 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   const [hasPasskeys, setHasPasskeys] = useState(false)
   const [hasPin, setHasPin] = useState(false)
   const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null)
+  const [clientLocked, setClientLocked] = useState(false)
   const bootstrapOnce = useRef(false)
   const lastPinHeartbeatAt = useRef(0)
+
+  const clearClientLock = useCallback(() => setClientLocked(false), [])
+
+  const effectiveStatus: AuthStatus =
+    clientLocked && status === 'ready' ? 'need_unlock' : status
 
   const refresh = useCallback(async () => {
     const me = await fetchAuthMe()
@@ -61,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       if (prev !== null && prev !== me.email) {
         storage.clearAll()
         bootstrapOnce.current = false
+        setClientLocked(false)
       }
       try {
         window.localStorage.setItem(storage.KEYS.lastAuthEmail, me.email)
@@ -74,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         /* ignore */
       }
       bootstrapOnce.current = false
+      setClientLocked(false)
     }
     setEmail(me.authenticated ? me.email : null)
     setHasPasskeys(me.authenticated ? me.hasPasskeys : false)
@@ -84,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   const onUnlocked = useCallback(async () => {
     if (bootstrapOnce.current) return
     bootstrapOnce.current = true
+    setClientLocked(false)
     try {
       await hydrateServerCachesAfterLogin()
       try {
@@ -143,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
 
   /** Detect server-side PIN inactivity lock; tab-visible heartbeat extends idle window (throttled). */
   useEffect(() => {
-    if (status !== 'ready') return
+    if (effectiveStatus !== 'ready') return
     const HB_MIN_MS = 60_000
     const tick = () => {
       void refresh()
@@ -166,11 +178,67 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [status, refresh])
+  }, [effectiveStatus, refresh])
+
+  /** Client-side inactivity lock: force /unlock after N minutes of no user input. */
+  useEffect(() => {
+    if (effectiveStatus !== 'ready') return
+
+    const DEFAULT_MS = 15 * 60 * 1000
+    const raw = import.meta.env.VITE_PIN_INACTIVITY_TIMEOUT_MS
+    const parsed =
+      typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN
+    const inactivityMs =
+      Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MS
+    if (inactivityMs === 0) return
+
+    let timeoutId: number | null = null
+    let lastActivityAt = Date.now()
+    let lastResetAt = 0
+    const RESET_THROTTLE_MS = 2_000
+
+    const schedule = (): void => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      const remaining = Math.max(0, inactivityMs - (Date.now() - lastActivityAt))
+      timeoutId = window.setTimeout(() => {
+        setClientLocked(true)
+      }, remaining)
+    }
+
+    const markActivity = (): void => {
+      const now = Date.now()
+      if (now - lastResetAt < RESET_THROTTLE_MS) return
+      lastResetAt = now
+      lastActivityAt = now
+      schedule()
+    }
+
+    schedule()
+
+    const opts: AddEventListenerOptions = { passive: true }
+    window.addEventListener('pointerdown', markActivity, opts)
+    window.addEventListener('keydown', markActivity)
+    window.addEventListener('mousemove', markActivity, opts)
+    window.addEventListener('touchstart', markActivity, opts)
+    window.addEventListener('scroll', markActivity, opts)
+    window.addEventListener('focus', markActivity)
+    document.addEventListener('visibilitychange', markActivity)
+
+    return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      window.removeEventListener('pointerdown', markActivity, opts)
+      window.removeEventListener('keydown', markActivity)
+      window.removeEventListener('mousemove', markActivity, opts)
+      window.removeEventListener('touchstart', markActivity, opts)
+      window.removeEventListener('scroll', markActivity, opts)
+      window.removeEventListener('focus', markActivity)
+      document.removeEventListener('visibilitychange', markActivity)
+    }
+  }, [effectiveStatus])
 
   const value = useMemo(
     (): AuthContextValue => ({
-      status,
+      status: effectiveStatus,
       email,
       hasPasskeys,
       hasPin,
@@ -178,9 +246,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       onUnlocked,
       lastSyncMessage,
       clearSyncMessage,
+      clientLocked,
+      clearClientLock,
     }),
     [
-      status,
+      effectiveStatus,
       email,
       hasPasskeys,
       hasPin,
@@ -188,6 +258,8 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       onUnlocked,
       lastSyncMessage,
       clearSyncMessage,
+      clientLocked,
+      clearClientLock,
     ],
   )
 

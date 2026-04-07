@@ -96,6 +96,17 @@ export const config = {
   /** Max failed WebAuthn auth verifications per googleSub per hour before lockout */
   webauthnMaxAuthFailures: 5,
   webauthnAuthLockoutMs: 60 * 60 * 1000,
+  /**
+   * Development-only auth bypass.
+   * If DEV_AUTH_EMAIL is set and NODE_ENV !== 'production', GET /api/auth/me will mint a session
+   * for this user when no session cookie exists, avoiding Google OAuth during local development.
+   */
+  devAuthEmail: process.env['DEV_AUTH_EMAIL']?.trim() || '',
+  /** Stable dev user id for DB + passkeys; defaults to the email string. */
+  devAuthSub:
+    process.env['DEV_AUTH_SUB']?.trim() ||
+    process.env['DEV_AUTH_EMAIL']?.trim() ||
+    '',
 }
 
 export function googleOAuthConfigured(): boolean {
