@@ -12,6 +12,8 @@ import {
   getEnrollmentForAccount,
   getLastSeenTxIdForAccount,
   getAccountTypeForUser,
+  getDepositoryAmountsInvertedFlag,
+  markDepositoryAmountsInverted,
   setLastSeenTxIdForAccount,
   upsertAccount,
 } from '../../db/accountsRepo.js'
@@ -19,6 +21,7 @@ import {
   getAllocationsForIds,
   upsertTransactionFromTeller,
 } from '../../db/transactionsRepo.js'
+import { query } from '../../db/pool.js'
 import {
   addSessionToken,
   clearSessionTokens,
@@ -272,6 +275,22 @@ export function applyTellerRoutes(app: Express): void {
       if (shouldPersist && userId) {
         const accountTypeRaw = await getAccountTypeForUser({ userId, accountId })
         const accountType = accountTypeRaw?.toLowerCase() ?? null
+
+        // One-time correction: if this is a depository account and existing rows were stored with inverted signs,
+        // flip them once in-place so a "quick sync" still fixes historical transactions.
+        if (accountType === 'depository') {
+          const already = await getDepositoryAmountsInvertedFlag({ userId, accountId })
+          if (!already) {
+            await query(
+              `UPDATE transactions
+               SET amount = -amount
+               WHERE user_id = $1 AND account_id = $2`,
+              [userId, accountId],
+            )
+            await markDepositoryAmountsInverted({ userId, accountId })
+          }
+        }
+
         const list = unwrapTransactionList(data)
         const parsed: NonNullable<ReturnType<typeof parseTellerTransaction>>[] =
           []

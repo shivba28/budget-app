@@ -40,6 +40,29 @@ export async function getAccountTypeForUser(params: {
   return typeof t === 'string' && t.trim() ? t.trim() : null
 }
 
+export async function getDepositoryAmountsInvertedFlag(params: {
+  userId: string
+  accountId: string
+}): Promise<boolean> {
+  const { rows } = await query<{ depository_amounts_inverted: boolean | null }>(
+    `SELECT depository_amounts_inverted FROM accounts WHERE user_id = $1 AND id = $2 LIMIT 1`,
+    [params.userId, params.accountId],
+  )
+  return rows[0]?.depository_amounts_inverted === true
+}
+
+export async function markDepositoryAmountsInverted(params: {
+  userId: string
+  accountId: string
+}): Promise<void> {
+  await query(
+    `UPDATE accounts
+     SET depository_amounts_inverted = TRUE
+     WHERE user_id = $1 AND id = $2`,
+    [params.userId, params.accountId],
+  )
+}
+
 export async function getLastSeenTxIdForAccount(
   userId: string,
   accountId: string,

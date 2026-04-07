@@ -107,6 +107,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_trips_user_name_start ON trips (user_id, na
 
 ALTER TABLE accounts
   ADD COLUMN IF NOT EXISTS last_seen_tx_id TEXT;
+
+ALTER TABLE accounts
+  ADD COLUMN IF NOT EXISTS depository_amounts_inverted BOOLEAN NOT NULL DEFAULT FALSE;
 `
 
 let migrated = false
