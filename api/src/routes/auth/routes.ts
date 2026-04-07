@@ -16,7 +16,7 @@ import {
   touchSessionExpiry,
   updateSessionRecord,
 } from '../../auth/sessionStore.js'
-import { SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
+import { bearerToken, SESSION_COOKIE, sessionIdFromRequest } from '../../auth/bearer.js'
 import {
   apiCookieSecure,
   clearSessionCookieOptions,
@@ -200,6 +200,12 @@ export function applyAuthRoutes(app: Express): void {
 
   app.get('/api/auth/me', (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store')
+    const anyReq = req as unknown as { cookies?: Record<string, unknown> }
+    const cookieSid =
+      typeof anyReq.cookies?.[SESSION_COOKIE] === 'string'
+        ? String(anyReq.cookies?.[SESSION_COOKIE])
+        : null
+    const bearerSid = bearerToken(req)
     const sid = sessionIdFromRequest(req)
     if (!sid) {
       res.json({
@@ -211,6 +217,12 @@ export function applyAuthRoutes(app: Express): void {
         ...(authMeDebugEnabled()
           ? {
               authDebug: 'no_budget_sid_cookie' as const,
+              ...(cookieSid || bearerSid
+                ? {
+                    sidSource: bearerSid ? ('bearer' as const) : ('cookie' as const),
+                    sidPrefix: (bearerSid ?? cookieSid ?? '').slice(0, 8),
+                  }
+                : {}),
               ...(!config.isProd
                 ? {
                     devHint:
@@ -235,6 +247,8 @@ export function applyAuthRoutes(app: Express): void {
             ? {
                 authDebug: 'session_unknown_or_expired' as const,
                 sessionStore: sessionStoreKind(),
+                sidSource: bearerSid ? ('bearer' as const) : ('cookie' as const),
+                sidPrefix: sid.slice(0, 8),
                 ...(!config.isProd
                   ? {
                       devHint:
