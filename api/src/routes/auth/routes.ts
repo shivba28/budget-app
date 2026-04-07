@@ -80,7 +80,7 @@ export function applyAuthRoutes(app: Express): void {
     const client = oauthClient()
     const url = client.generateAuthUrl({
       access_type: 'online',
-      prompt: config.googleOauthPrompt ?? 'select_account',
+      prompt: config.googleOauthPrompt ?? 'select_account consent',
       scope: [
         'openid',
         'https://www.googleapis.com/auth/userinfo.email',
