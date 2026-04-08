@@ -33,12 +33,14 @@ import { cn } from '@/lib/utils'
 import './Page.css'
 import './Transactions.css'
 
-function TransactionsSkeleton({ label }: { readonly label: string }): ReactElement {
+function TransactionsSkeleton({ label }: { readonly label?: string }): ReactElement {
   return (
     <div className="py-6" role="status" aria-live="polite">
-      <p className="mb-4 text-center text-sm font-medium text-foreground">
-        {label}
-      </p>
+      {label ? (
+        <p className="mb-4 text-center text-sm font-medium text-foreground">
+          {label}
+        </p>
+      ) : null}
       <div className="animate-pulse space-y-3">
         <div className="h-10 rounded-xl border border-border bg-muted/30" />
         {Array.from({ length: 8 }).map((_, i) => (
@@ -159,12 +161,6 @@ export function Transactions(): ReactElement {
     accountName?: string
   } | null>(null)
   const [expandedMonthKeys, setExpandedMonthKeys] = useState<Set<string>>(
-    () => new Set(),
-  )
-  const [expandingMonthKeys, setExpandingMonthKeys] = useState<Set<string>>(
-    () => new Set(),
-  )
-  const [collapsingMonthKeys, setCollapsingMonthKeys] = useState<Set<string>>(
     () => new Set(),
   )
   const [categoryOverrides, setCategoryOverrides] = useState<
@@ -419,34 +415,10 @@ export function Transactions(): ReactElement {
   }
 
   function toggleMonth(monthKey: string): void {
-    const ANIM_MS = 200
     setExpandedMonthKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(monthKey)) {
-        setCollapsingMonthKeys((c) => new Set(c).add(monthKey))
-        window.setTimeout(() => {
-          setExpandedMonthKeys((p2) => {
-            const n2 = new Set(p2)
-            n2.delete(monthKey)
-            return n2
-          })
-          setCollapsingMonthKeys((c2) => {
-            const n = new Set(c2)
-            n.delete(monthKey)
-            return n
-          })
-        }, ANIM_MS)
-      } else {
-        next.add(monthKey)
-        setExpandingMonthKeys((e) => new Set(e).add(monthKey))
-        window.setTimeout(() => {
-          setExpandingMonthKeys((e2) => {
-            const n = new Set(e2)
-            n.delete(monthKey)
-            return n
-          })
-        }, ANIM_MS)
-      }
+      if (next.has(monthKey)) next.delete(monthKey)
+      else next.add(monthKey)
       return next
     })
   }
@@ -588,86 +560,88 @@ export function Transactions(): ReactElement {
             }
             aria-hidden={!advancedOpen}
           >
-            <label className="tx-toolbar__field">
-              <span className="tx-toolbar__label">Date range</span>
-              <select
-                className="tx-toolbar__select"
-                value={datePreset}
-                onChange={(e) => setDatePreset(e.target.value as DatePreset)}
-              >
-                {DATE_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {datePreset === 'custom' ? (
-              <div className="tx-toolbar__dates-custom">
-                <label className="tx-toolbar__field tx-toolbar__field--narrow">
-                  <span className="tx-toolbar__label">From</span>
-                  <Input
-                    type="date"
-                    className="tx-toolbar__input h-9 border-border bg-background"
-                    value={customDateFrom}
-                    onChange={(e) => setCustomDateFrom(e.target.value)}
-                  />
-                </label>
-                <label className="tx-toolbar__field tx-toolbar__field--narrow">
-                  <span className="tx-toolbar__label">To</span>
-                  <Input
-                    type="date"
-                    className="tx-toolbar__input h-9 border-border bg-background"
-                    value={customDateTo}
-                    onChange={(e) => setCustomDateTo(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
-            <label className="tx-toolbar__field">
-              <span className="tx-toolbar__label">Category</span>
-              <select
-                className="tx-toolbar__select"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="all">All categories</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <fieldset className="tx-toolbar__fieldset">
-              <legend className="tx-toolbar__label">Cash flow</legend>
-              <div
-                className="tx-toggle-group tx-toggle-group--spaced"
-                role="group"
-                aria-label="Filter: outflows shown as negative amounts, inflows as positive with no plus sign"
-              >
-                {(
-                  [
-                    ['all', 'All'],
-                    ['debit', 'Out'],
-                    ['credit', 'In'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={
-                      directionFilter === value
-                        ? 'tx-toggle tx-toggle--active'
-                        : 'tx-toggle'
-                    }
-                    onClick={() => setDirectionFilter(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+            <div className="tx-toolbar__advanced-inner">
+              <label className="tx-toolbar__field">
+                <span className="tx-toolbar__label">Date range</span>
+                <select
+                  className="tx-toolbar__select"
+                  value={datePreset}
+                  onChange={(e) => setDatePreset(e.target.value as DatePreset)}
+                >
+                  {DATE_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {datePreset === 'custom' ? (
+                <div className="tx-toolbar__dates-custom">
+                  <label className="tx-toolbar__field tx-toolbar__field--narrow">
+                    <span className="tx-toolbar__label">From</span>
+                    <Input
+                      type="date"
+                      className="tx-toolbar__input h-9 border-border bg-background"
+                      value={customDateFrom}
+                      onChange={(e) => setCustomDateFrom(e.target.value)}
+                    />
+                  </label>
+                  <label className="tx-toolbar__field tx-toolbar__field--narrow">
+                    <span className="tx-toolbar__label">To</span>
+                    <Input
+                      type="date"
+                      className="tx-toolbar__input h-9 border-border bg-background"
+                      value={customDateTo}
+                      onChange={(e) => setCustomDateTo(e.target.value)}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <label className="tx-toolbar__field">
+                <span className="tx-toolbar__label">Category</span>
+                <select
+                  className="tx-toolbar__select"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <option value="all">All categories</option>
+                  {CATEGORIES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <fieldset className="tx-toolbar__fieldset">
+                <legend className="tx-toolbar__label">Cash flow</legend>
+                <div
+                  className="tx-toggle-group tx-toggle-group--spaced"
+                  role="group"
+                  aria-label="Filter: outflows shown as negative amounts, inflows as positive with no plus sign"
+                >
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['debit', 'Out'],
+                      ['credit', 'In'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={
+                        directionFilter === value
+                          ? 'tx-toggle tx-toggle--active'
+                          : 'tx-toggle'
+                      }
+                      onClick={() => setDirectionFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
           </div>
         </div>
       </div>
@@ -677,7 +651,7 @@ export function Transactions(): ReactElement {
           <TransactionsSkeleton label="Loading transactions…" />
         ) : null}
 
-        {syncing ? <TransactionsSkeleton label="Syncing transactions…" /> : null}
+        {syncing ? <TransactionsSkeleton /> : null}
 
         {showInitialError ? (
           <div className="tx-screen-head tx-screen-head--embedded">
@@ -765,7 +739,6 @@ export function Transactions(): ReactElement {
 
                 const tx = row.tx
                 const rowKey = txRowKey(tx)
-                const monthKey = row.monthKey
                 const effectiveId = resolveDisplayCategory(
                   tx,
                   categoryOverrides,
@@ -774,18 +747,13 @@ export function Transactions(): ReactElement {
                 const deferred =
                   showDeferredChrome &&
                   isDeferredOutOfViewMonth(tx, tripsById, viewYear, viewMonth)
-                const animClass = collapsingMonthKeys.has(monthKey)
-                  ? 'tx-month-row--leaving'
-                  : expandingMonthKeys.has(monthKey)
-                    ? 'tx-month-row--entering'
-                    : ''
 
                 return (
                   <div
                     key={`t-${rowKey}`}
                     data-index={virtualRow.index}
                     ref={rowVirtualizer.measureElement}
-                    className={cn('tx-virtual-row tx-virtual-row--tx', animClass)}
+                    className="tx-virtual-row tx-virtual-row--tx"
                     style={{
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
