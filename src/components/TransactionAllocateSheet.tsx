@@ -1,12 +1,21 @@
 import type { ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Calendar, Plane } from 'lucide-react'
+import { Calendar, Plane, Tag } from 'lucide-react'
 import type { Transaction, Trip } from '@/lib/domain'
 import * as storage from '@/lib/storage'
 import {
   allocateTransaction,
   clearTransactionAllocation,
 } from '@/lib/transactionAllocation'
+import {
+  formatCurrencyAmount,
+  formatTransactionAccountLabel,
+  getCategoryLabel,
+  getCategoryPillColor,
+  persistCategoryOverride,
+  resolveDisplayCategory,
+} from '@/lib/api'
+import { CATEGORIES } from '@/constants/categories'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -19,7 +28,7 @@ type Props = {
   readonly onApplied: () => void
 }
 
-type Panel = 'menu' | 'defer' | 'trip' | 'newTrip'
+type Panel = 'menu' | 'defer' | 'trip' | 'newTrip' | 'category'
 
 function truncate(s: string, max: number): string {
   const t = s.trim()
@@ -68,6 +77,25 @@ export function TransactionAllocateSheet({
   if (!open || !tx) return null
 
   const row = tx
+  const accounts = storage.getAccounts() ?? []
+  const accountLabel = formatTransactionAccountLabel(row.accountId, accounts)
+  const effectiveCategoryId = resolveDisplayCategory(
+    row,
+    storage.getCategoryOverrides(),
+  )
+  const pillColor = getCategoryPillColor(effectiveCategoryId)
+
+  function displayAmount(tellerAmount: number): number {
+    if (tellerAmount > 0) return -tellerAmount
+    if (tellerAmount < 0) return Math.abs(tellerAmount)
+    return 0
+  }
+
+  function amountClass(tellerAmount: number): string {
+    if (tellerAmount > 0) return 'tx-table__amount tx-amount-debit'
+    if (tellerAmount < 0) return 'tx-table__amount tx-amount-credit'
+    return 'tx-table__amount'
+  }
 
   async function applyDefer(): Promise<void> {
     if (!canSubmitDefer) return
@@ -136,11 +164,34 @@ export function TransactionAllocateSheet({
       >
         <div className="mx-auto mb-3 h-1 w-10 shrink-0 rounded-full bg-muted" />
 
+        <div className="mb-4 rounded-xl border border-border bg-muted/20 px-3 py-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              {row.description}
+            </p>
+            <p className="max-w-[44%] shrink-0 truncate text-xs text-muted-foreground">
+              {accountLabel}
+            </p>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="shrink-0">{row.date}</span>
+              <span
+                className="category-pill max-w-[9.5rem] truncate"
+                style={{ backgroundColor: pillColor }}
+                title={getCategoryLabel(effectiveCategoryId)}
+              >
+                {getCategoryLabel(effectiveCategoryId)}
+              </span>
+            </div>
+            <span className={amountClass(row.amount)}>
+              {formatCurrencyAmount(displayAmount(row.amount))}
+            </span>
+          </div>
+        </div>
+
         {panel === 'menu' ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {truncate(row.description, 72)}
-            </p>
             <Button
               type="button"
               variant="secondary"
@@ -159,6 +210,15 @@ export function TransactionAllocateSheet({
               <Plane className="mr-2 size-4 shrink-0" aria-hidden />
               Add to trip
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full justify-start"
+              onClick={() => setPanel('category' as Panel)}
+            >
+              <Tag className="mr-2 size-4 shrink-0" aria-hidden />
+              Change category
+            </Button>
             {(row.tripId != null ||
               (typeof row.effectiveDate === 'string' &&
                 row.effectiveDate.length >= 7)) && (
@@ -171,6 +231,45 @@ export function TransactionAllocateSheet({
                 Clear allocation
               </Button>
             )}
+          </div>
+        ) : null}
+
+        {(panel as string) === 'category' ? (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ml-2 mb-1"
+              onClick={() => setPanel('menu')}
+            >
+              ← Back
+            </Button>
+            <ul className="max-h-64 space-y-1 overflow-y-auto">
+              {CATEGORIES.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm',
+                      'hover:bg-muted/60',
+                    )}
+                    onClick={() => {
+                      persistCategoryOverride(row.id, c.id)
+                      onApplied()
+                      onClose()
+                    }}
+                  >
+                    <span
+                      className="size-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: getCategoryPillColor(c.id) }}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

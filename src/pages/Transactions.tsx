@@ -2,7 +2,6 @@ import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Calendar, Plane } from 'lucide-react'
 import { CATEGORIES } from '../constants/categories'
 import { ErrorRetry } from '../components/ErrorRetry'
 import {
@@ -13,7 +12,6 @@ import {
   getCategoryPillColor,
   isDeferredOutOfViewMonth,
   loadTransactionsFromCacheOrFetch,
-  persistCategoryOverride,
   refreshTransactionsFromBackend,
   resolveDisplayCategory,
   tripsMapFromList,
@@ -89,7 +87,7 @@ type VisibleRow =
       count: number
       expanded: boolean
     }
-  | { type: 'tx'; tx: Transaction }
+  | { type: 'tx'; monthKey: string; tx: Transaction }
 
 /** Stable virtual keys so TanStack Virtual does not reuse wrong heights when rows are inserted/removed. */
 function virtualItemKeyForRow(row: VisibleRow): string {
@@ -167,11 +165,13 @@ export function Transactions(): ReactElement {
       | 'finalize'
     accountName?: string
   } | null>(null)
-  const [openPickerKey, setOpenPickerKey] = useState<string | null>(null)
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
+  const [expandedMonthKeys, setExpandedMonthKeys] = useState<Set<string>>(
     () => new Set(),
   )
-  const [expandedMonthKeys, setExpandedMonthKeys] = useState<Set<string>>(
+  const [expandingMonthKeys, setExpandingMonthKeys] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const [collapsingMonthKeys, setCollapsingMonthKeys] = useState<Set<string>>(
     () => new Set(),
   )
   const [categoryOverrides, setCategoryOverrides] = useState<
@@ -180,7 +180,7 @@ export function Transactions(): ReactElement {
   const [exclusionRev, setExclusionRev] = useState(0)
   const [tripsRev, setTripsRev] = useState(0)
   const [sheetTx, setSheetTx] = useState<Transaction | null>(null)
-  const [sheetPanel, setSheetPanel] = useState<'menu' | 'defer' | 'trip'>('menu')
+  const [sheetPanel, setSheetPanel] = useState<'menu' | 'defer' | 'trip' | 'category'>('menu')
 
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
@@ -252,16 +252,7 @@ export function Transactions(): ReactElement {
       window.removeEventListener(storage.BANK_SYNC_COMPLETED_EVENT, on)
   }, [])
 
-  useEffect(() => {
-    if (openPickerKey === null) return
-    function onDocMouseDown(e: MouseEvent): void {
-      const t = e.target as HTMLElement
-      if (t.closest('.tx-cat-cell')) return
-      setOpenPickerKey(null)
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [openPickerKey])
+  // Category changes happen in the bottom sheet now.
 
   const doSync = useCallback(async () => {
     setSyncing(true)
@@ -393,7 +384,7 @@ export function Transactions(): ReactElement {
       })
       if (expanded) {
         for (const tx of g.transactions) {
-          out.push({ type: 'tx', tx })
+          out.push({ type: 'tx', monthKey: g.monthKey, tx })
         }
       }
     }
@@ -429,26 +420,40 @@ export function Transactions(): ReactElement {
   const viewYear = viewNow.getFullYear()
   const viewMonth = viewNow.getMonth() + 1
 
-  function pickCategory(txId: string, categoryId: string): void {
-    persistCategoryOverride(txId, categoryId)
-    setCategoryOverrides({ ...storage.getCategoryOverrides() })
-    setOpenPickerKey(null)
-  }
-
-  function toggleExpanded(key: string): void {
-    setExpandedKeys((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  function openTxSheet(tx: Transaction, panel: 'menu' | 'defer' | 'trip' | 'category' = 'menu'): void {
+    setSheetPanel(panel)
+    setSheetTx(tx)
   }
 
   function toggleMonth(monthKey: string): void {
+    const ANIM_MS = 200
     setExpandedMonthKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(monthKey)) next.delete(monthKey)
-      else next.add(monthKey)
+      if (next.has(monthKey)) {
+        setCollapsingMonthKeys((c) => new Set(c).add(monthKey))
+        window.setTimeout(() => {
+          setExpandedMonthKeys((p2) => {
+            const n2 = new Set(p2)
+            n2.delete(monthKey)
+            return n2
+          })
+          setCollapsingMonthKeys((c2) => {
+            const n = new Set(c2)
+            n.delete(monthKey)
+            return n
+          })
+        }, ANIM_MS)
+      } else {
+        next.add(monthKey)
+        setExpandingMonthKeys((e) => new Set(e).add(monthKey))
+        window.setTimeout(() => {
+          setExpandingMonthKeys((e2) => {
+            const n = new Set(e2)
+            n.delete(monthKey)
+            return n
+          })
+        }, ANIM_MS)
+      }
       return next
     })
   }
@@ -694,7 +699,7 @@ export function Transactions(): ReactElement {
         {filteredRows.length > 0 && !bootstrapLoading && !syncing ? (
           <div className="tx-accordion-wrap">
             <p className="tx-accordion-hint">
-              Expand a row for account, category, and allocation.
+              Tap a transaction for allocation and details.
             </p>
             <div
               className="tx-virtual-anchor"
@@ -735,218 +740,70 @@ export function Transactions(): ReactElement {
 
                 const tx = row.tx
                 const rowKey = txRowKey(tx)
-                const domSafeId = rowKey.replace(/[^a-zA-Z0-9_-]/g, '_')
-                const expanded = expandedKeys.has(rowKey)
-                const panelId = `tx-panel-${domSafeId}`
-                const triggerId = `tx-trigger-${domSafeId}`
+                const monthKey = row.monthKey
                 const effectiveId = resolveDisplayCategory(
                   tx,
                   categoryOverrides,
                 )
                 const pillColor = getCategoryPillColor(effectiveId)
-                const pickerOpen = openPickerKey === rowKey
                 const deferred =
                   showDeferredChrome &&
                   isDeferredOutOfViewMonth(tx, tripsById, viewYear, viewMonth)
-                const trip = tx.tripId != null ? tripsById.get(tx.tripId) : undefined
-                let allocChip: ReactElement | null = null
-                if (trip) {
-                  const tn =
-                    trip.name.length > 16
-                      ? `${trip.name.slice(0, 15)}…`
-                      : trip.name
-                  allocChip = (
-                    <span className="tx-alloc-chip tx-alloc-chip--trip" title={trip.name}>
-                      <span aria-hidden>✈</span> {tn}
-                    </span>
-                  )
-                } else if (
-                  typeof tx.effectiveDate === 'string' &&
-                  tx.effectiveDate.length >= 10
-                ) {
-                  allocChip = (
-                    <span className="tx-alloc-chip tx-alloc-chip--defer">
-                      → {formatShortCalendarDay(tx.effectiveDate)}
-                    </span>
-                  )
-                }
+                const animClass = collapsingMonthKeys.has(monthKey)
+                  ? 'tx-month-row--leaving'
+                  : expandingMonthKeys.has(monthKey)
+                    ? 'tx-month-row--entering'
+                    : ''
 
                 return (
                   <div
                     key={`t-${rowKey}`}
                     data-index={virtualRow.index}
                     ref={rowVirtualizer.measureElement}
-                    className={
-                      pickerOpen
-                        ? 'tx-virtual-row tx-virtual-row--tx tx-virtual-row--picker-open'
-                        : 'tx-virtual-row tx-virtual-row--tx'
-                    }
+                    className={cn('tx-virtual-row tx-virtual-row--tx', animClass)}
                     style={{
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
                     <div className="tx-acc__virtual-item">
-                      <div
-                        role="listitem"
+                      <button
+                        type="button"
                         className={cn(
-                          pickerOpen
-                            ? 'tx-acc__item tx-acc__item--picker-open'
-                            : 'tx-acc__item',
+                          'tx-acc__item w-full text-left',
                           deferred && 'tx-acc__item--deferred',
                         )}
                         style={{
                           boxShadow: `inset 3px 0 0 ${categoryAccentRgba(pillColor, 0.35)}`,
                         }}
+                        onClick={() => openTxSheet(tx, 'menu')}
                       >
-                        <div className="tx-acc__header-row">
-                          <button
-                            type="button"
-                            className="tx-acc__chevron-hit"
-                            aria-expanded={expanded}
-                            aria-controls={panelId}
-                            id={triggerId}
-                            onClick={() => toggleExpanded(rowKey)}
-                          >
-                            <IconChevron expanded={expanded} />
-                          </button>
-                          <button
-                            type="button"
-                            className="tx-acc__main"
-                            onClick={() => toggleExpanded(rowKey)}
-                          >
-                            <span className="tx-acc__date">{tx.date}</span>
-                            <span className="tx-acc__desc">{tx.description}</span>
-                            <span
-                              className={cn(
-                                amountClass(tx.amount),
-                                deferred && 'tx-acc__amount--deferred',
-                              )}
-                            >
-                              {formatCurrencyAmount(displayAmount(tx.amount))}
-                            </span>
-                            {allocChip ? (
-                              <span className="tx-acc__meta-row">{allocChip}</span>
-                            ) : null}
-                          </button>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                            {tx.description}
+                          </span>
+                          <span className="max-w-[44%] shrink-0 truncate text-xs text-muted-foreground">
+                            {formatTransactionAccountLabel(tx.accountId, accountsForTable)}
+                          </span>
                         </div>
-                        <div
-                          className={
-                            expanded
-                              ? 'tx-acc__panel-outer tx-acc__panel-outer--open'
-                              : 'tx-acc__panel-outer'
-                          }
-                          id={panelId}
-                          role="region"
-                          aria-labelledby={triggerId}
-                          aria-hidden={!expanded}
-                          inert={!expanded}
-                        >
-                          <div className="tx-acc__panel-inner">
-                            <div className="tx-acc__panel">
-                              <div className="tx-acc__row">
-                                <span className="tx-acc__label">Account</span>
-                                <span className="tx-acc__value">
-                                  {formatTransactionAccountLabel(
-                                    tx.accountId,
-                                    accountsForTable,
-                                  )}
-                                </span>
-                              </div>
-                              <div className="tx-acc__row tx-acc__row--category">
-                                <span className="tx-acc__label">Category</span>
-                                <div className="tx-cat-cell">
-                                  <button
-                                    type="button"
-                                    className="category-pill category-pill--button"
-                                    style={{ backgroundColor: pillColor }}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setOpenPickerKey(
-                                        pickerOpen ? null : rowKey,
-                                      )
-                                    }}
-                                    aria-expanded={pickerOpen}
-                                    aria-haspopup="listbox"
-                                  >
-                                    {getCategoryLabel(effectiveId)}
-                                  </button>
-                                  {pickerOpen ? (
-                                    <ul
-                                      className="tx-cat-picker"
-                                      role="listbox"
-                                      aria-label="Choose category"
-                                    >
-                                      {CATEGORIES.map((c) => (
-                                        <li key={c.id} role="none">
-                                          <button
-                                            type="button"
-                                            role="option"
-                                            className="tx-cat-picker__opt"
-                                            onClick={() =>
-                                              pickCategory(tx.id, c.id)
-                                            }
-                                          >
-                                            <span
-                                              className="tx-cat-picker__swatch"
-                                              style={{
-                                                backgroundColor:
-                                                  getCategoryPillColor(c.id),
-                                              }}
-                                            />
-                                            {c.label}
-                                          </button>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : null}
-                                </div>
-                              </div>
-                              <div className="tx-acc__row">
-                                <span className="tx-acc__label">Allocation</span>
-                                <span className="tx-acc__value">
-                                  <span className="tx-acc__alloc">
-                                    <span className="tx-acc__alloc-actions">
-                                      <button
-                                        type="button"
-                                        className="tx-acc__link"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setSheetPanel('defer')
-                                          setSheetTx(tx)
-                                        }}
-                                      >
-                                        <Calendar
-                                          className="mr-2 inline-block size-4 align-[-2px] text-muted-foreground"
-                                          aria-hidden
-                                        />
-                                        Defer to date
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="tx-acc__link"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setSheetPanel('trip')
-                                          setSheetTx(tx)
-                                        }}
-                                      >
-                                        <Plane
-                                          className="mr-2 inline-block size-4 align-[-2px] text-muted-foreground"
-                                          aria-hidden
-                                        />
-                                        Add to trip
-                                      </button>
-                                    </span>
-                                    {allocChip ? (
-                                      <span className="tx-acc__alloc-chip-row">
-                                        {allocChip}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </span>
-                              </div>
-                            </div>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="shrink-0">{tx.date}</span>
+                            <span
+                              className="category-pill max-w-[9.5rem] truncate"
+                              style={{ backgroundColor: pillColor }}
+                              title={getCategoryLabel(effectiveId)}
+                            >
+                              {getCategoryLabel(effectiveId)}
+                            </span>
                           </div>
+                          <span
+                            className={cn(
+                              amountClass(tx.amount),
+                              deferred && 'tx-acc__amount--deferred',
+                            )}
+                          >
+                            {formatCurrencyAmount(displayAmount(tx.amount))}
+                          </span>
                         </div>
                       </div>
                     </div>
