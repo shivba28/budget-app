@@ -23,18 +23,12 @@ import { cn } from '@/lib/utils'
 type Props = {
   readonly tx: Transaction | null
   readonly open: boolean
-  readonly initialPanel?: 'menu' | 'defer' | 'trip'
+  readonly initialPanel?: 'menu' | 'defer' | 'trip' | 'category'
   readonly onClose: () => void
   readonly onApplied: () => void
 }
 
 type Panel = 'menu' | 'defer' | 'trip' | 'newTrip' | 'category'
-
-function truncate(s: string, max: number): string {
-  const t = s.trim()
-  if (t.length <= max) return t
-  return `${t.slice(0, Math.max(0, max - 1))}…`
-}
 
 export function TransactionAllocateSheet({
   tx,

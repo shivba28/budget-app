@@ -95,14 +95,6 @@ function virtualItemKeyForRow(row: VisibleRow): string {
   return `t:${txRowKey(row.tx)}`
 }
 
-function formatShortCalendarDay(iso: string): string {
-  const d = new Date(`${iso.slice(0, 10)}T12:00:00`)
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-  }).format(d)
-}
-
 function IconChevron({ expanded }: { readonly expanded: boolean }): ReactElement {
   return (
     <svg
@@ -152,6 +144,7 @@ export function Transactions(): ReactElement {
   const [datePreset, setDatePreset] = useState<DatePreset>('all')
   const [customDateFrom, setCustomDateFrom] = useState('')
   const [customDateTo, setCustomDateTo] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncHint, setSyncHint] = useState<'full' | 'refresh' | null>(null)
   const [syncProgress, setSyncProgress] = useState<{
@@ -551,99 +544,131 @@ export function Transactions(): ReactElement {
         ) : null}
 
         <div className="tx-toolbar">
-          <label className="tx-toolbar__field">
-            <span className="tx-toolbar__label">Search</span>
-            <Input
-              type="search"
-              className="tx-toolbar__input h-9 border-border bg-background"
-              placeholder="Filter by description…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label className="tx-toolbar__field">
-            <span className="tx-toolbar__label">Date range</span>
-            <select
-              className="tx-toolbar__select"
-              value={datePreset}
-              onChange={(e) =>
-                setDatePreset(e.target.value as DatePreset)
-              }
+          <div className="tx-toolbar__search-row">
+            <label className="tx-toolbar__field tx-toolbar__field--search">
+              <span className="tx-toolbar__label">Search</span>
+              <Input
+                type="search"
+                className="tx-toolbar__input h-9 border-border bg-background"
+                placeholder="Filter by description…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <button
+              type="button"
+              className="tx-toolbar__advanced-toggle"
+              aria-expanded={advancedOpen}
+              onClick={() => setAdvancedOpen((v) => !v)}
             >
-              {DATE_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {datePreset === 'custom' ? (
-            <div className="tx-toolbar__dates-custom">
-              <label className="tx-toolbar__field tx-toolbar__field--narrow">
-                <span className="tx-toolbar__label">From</span>
-                <Input
-                  type="date"
-                  className="tx-toolbar__input h-9 border-border bg-background"
-                  value={customDateFrom}
-                  onChange={(e) => setCustomDateFrom(e.target.value)}
-                />
-              </label>
-              <label className="tx-toolbar__field tx-toolbar__field--narrow">
-                <span className="tx-toolbar__label">To</span>
-                <Input
-                  type="date"
-                  className="tx-toolbar__input h-9 border-border bg-background"
-                  value={customDateTo}
-                  onChange={(e) => setCustomDateTo(e.target.value)}
-                />
-              </label>
-            </div>
-          ) : null}
-          <label className="tx-toolbar__field">
-            <span className="tx-toolbar__label">Category</span>
-            <select
-              className="tx-toolbar__select"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="all">All categories</option>
-              {CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="tx-toolbar__fieldset">
-            <legend className="tx-toolbar__label">Cash flow</legend>
-            <div
-              className="tx-toggle-group"
-              role="group"
-              aria-label="Filter: outflows shown as negative amounts, inflows as positive with no plus sign"
-            >
-              {(
-                [
-                  ['all', 'All'],
-                  ['debit', 'Out'],
-                  ['credit', 'In'],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={
-                    directionFilter === value
-                      ? 'tx-toggle tx-toggle--active'
-                      : 'tx-toggle'
-                  }
-                  onClick={() => setDirectionFilter(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
+              <span className="tx-toolbar__advanced-label">Advanced</span>
+              <svg
+                className={advancedOpen ? 'tx-toolbar__chev tx-toolbar__chev--open' : 'tx-toolbar__chev'}
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+
+          <div
+            className={
+              advancedOpen
+                ? 'tx-toolbar__advanced tx-toolbar__advanced--open'
+                : 'tx-toolbar__advanced'
+            }
+            aria-hidden={!advancedOpen}
+          >
+            <label className="tx-toolbar__field">
+              <span className="tx-toolbar__label">Date range</span>
+              <select
+                className="tx-toolbar__select"
+                value={datePreset}
+                onChange={(e) => setDatePreset(e.target.value as DatePreset)}
+              >
+                {DATE_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {datePreset === 'custom' ? (
+              <div className="tx-toolbar__dates-custom">
+                <label className="tx-toolbar__field tx-toolbar__field--narrow">
+                  <span className="tx-toolbar__label">From</span>
+                  <Input
+                    type="date"
+                    className="tx-toolbar__input h-9 border-border bg-background"
+                    value={customDateFrom}
+                    onChange={(e) => setCustomDateFrom(e.target.value)}
+                  />
+                </label>
+                <label className="tx-toolbar__field tx-toolbar__field--narrow">
+                  <span className="tx-toolbar__label">To</span>
+                  <Input
+                    type="date"
+                    className="tx-toolbar__input h-9 border-border bg-background"
+                    value={customDateTo}
+                    onChange={(e) => setCustomDateTo(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+            <label className="tx-toolbar__field">
+              <span className="tx-toolbar__label">Category</span>
+              <select
+                className="tx-toolbar__select"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="all">All categories</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <fieldset className="tx-toolbar__fieldset">
+              <legend className="tx-toolbar__label">Cash flow</legend>
+              <div
+                className="tx-toggle-group tx-toggle-group--spaced"
+                role="group"
+                aria-label="Filter: outflows shown as negative amounts, inflows as positive with no plus sign"
+              >
+                {(
+                  [
+                    ['all', 'All'],
+                    ['debit', 'Out'],
+                    ['credit', 'In'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={
+                      directionFilter === value
+                        ? 'tx-toggle tx-toggle--active'
+                        : 'tx-toggle'
+                    }
+                    onClick={() => setDirectionFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </div>
         </div>
       </div>
 
@@ -805,7 +830,7 @@ export function Transactions(): ReactElement {
                             {formatCurrencyAmount(displayAmount(tx.amount))}
                           </span>
                         </div>
-                      </div>
+                      </button>
                     </div>
                   </div>
                 )
