@@ -613,7 +613,7 @@ export function Transactions(): ReactElement {
                 </select>
               </label>
               <fieldset className="tx-toolbar__fieldset">
-                <legend className="tx-toolbar__label">Cash flow</legend>
+                <legend className="tx-toolbar__label mb-2">Cash flow</legend>
                 <div
                   className="tx-toggle-group tx-toggle-group--spaced"
                   role="group"
@@ -647,10 +647,6 @@ export function Transactions(): ReactElement {
       </div>
 
       <div ref={scrollRef} className="tx-scroll">
-        {bootstrapLoading && rows.length === 0 ? (
-          <TransactionsSkeleton label="Loading transactions…" />
-        ) : null}
-
         {syncing ? <TransactionsSkeleton /> : null}
 
         {showInitialError ? (
@@ -770,7 +766,7 @@ export function Transactions(): ReactElement {
                         }}
                         onClick={() => openTxSheet(tx, 'menu')}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3">
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                             {tx.description}
                           </span>

@@ -115,7 +115,7 @@ export function NavBar(): ReactElement {
     >
       <nav
         className={cn(
-          'pointer-events-auto flex max-w-[min(300px,calc(100%-1.5rem))] items-stretch justify-around gap-0.5 rounded-[1.75rem]',
+          'pointer-events-auto flex max-w-[min(300px,calc(100%-1.5rem))] items-stretch justify-around gap-0.5 rounded-[1.25rem]',
           'border border-white/40 shadow-[0_10px_40px_rgba(0,0,0,0.12),inset_0_1px_0_0_rgba(255,255,255,0.55)]',
           'bg-white/[0.2] backdrop-blur-[28px] backdrop-saturate-[1.35]',
           '[-webkit-backdrop-filter:blur(28px)_saturate(1.35)]',
