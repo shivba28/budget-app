@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { BudgetAlertHost } from './components/BudgetAlertHost'
 import { SwipeNavigationWrapper } from './components/SwipeNavigationWrapper'
 import { ProtectedShell } from './components/ProtectedShell'
+import { LoadingSpinner } from './components/LoadingSpinner'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { hasSeenLanding } from './lib/storage'
 import { LoginPage } from './pages/LoginPage'
@@ -27,8 +28,8 @@ function RootEntry(): ReactElement {
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-dvh flex-1 items-center justify-center bg-neutral-950 text-sm text-neutral-400">
-        Loading…
+      <div className="flex min-h-dvh flex-1 items-center justify-center bg-neutral-950">
+        <LoadingSpinner label="" />
       </div>
     )
   }

@@ -25,9 +25,11 @@ export function LoadingSpinner({
           <div className="h-4 w-full rounded bg-muted/70" />
           <div className="h-4 w-5/6 rounded bg-muted/60" />
         </div>
-        <span className="mt-4 block text-center text-sm font-medium text-foreground">
-          {label}
-        </span>
+        {label ? (
+          <span className="mt-4 block text-center text-sm font-medium text-foreground">
+            {label}
+          </span>
+        ) : null}
       </div>
     </div>
   )

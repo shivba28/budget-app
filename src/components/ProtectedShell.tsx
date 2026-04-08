@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { BankAutoSync } from '@/components/BankAutoSync'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { NavBar } from '@/components/NavBar'
 import { PasskeyPostLoginPrompt } from '@/components/PasskeyPostLoginPrompt'
 import { NavScrollProvider } from '@/contexts/NavScrollContext'
@@ -13,7 +14,7 @@ export function ProtectedShell(): ReactElement {
   if (status === 'loading') {
     return (
       <div className="app-shell flex flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <LoadingSpinner label="" />
       </div>
     )
   }
