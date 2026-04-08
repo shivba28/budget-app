@@ -647,6 +647,8 @@ export function Transactions(): ReactElement {
       </div>
 
       <div ref={scrollRef} className="tx-scroll">
+        {bootstrapLoading && rows.length === 0 ? <TransactionsSkeleton /> : null}
+
         {syncing ? <TransactionsSkeleton /> : null}
 
         {showInitialError ? (

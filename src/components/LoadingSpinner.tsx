@@ -7,7 +7,7 @@ type LoadingSpinnerProps = {
 }
 
 export function LoadingSpinner({
-  label = 'Loading…',
+  label = '',
   className,
 }: LoadingSpinnerProps): ReactElement {
   return (

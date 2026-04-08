@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Calendar, Plane, Tag } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
 import type { Transaction, Trip } from '@/lib/domain'
 import * as storage from '@/lib/storage'
 import {
@@ -37,6 +38,8 @@ export function TransactionAllocateSheet({
   onClose,
   onApplied,
 }: Props): ReactElement | null {
+  const reduceMotion = useReducedMotion()
+  const [rendered, setRendered] = useState(open)
   const [panel, setPanel] = useState<Panel>('menu')
   const [trips, setTrips] = useState<Trip[]>(() => storage.getTrips())
   const [deferDate, setDeferDate] = useState('')
@@ -51,6 +54,10 @@ export function TransactionAllocateSheet({
     return () =>
       window.removeEventListener(storage.TRIPS_CHANGED_EVENT, onTrips)
   }, [])
+
+  useEffect(() => {
+    if (open) setRendered(true)
+  }, [open])
 
   useEffect(() => {
     if (!open || !tx) return
@@ -68,7 +75,7 @@ export function TransactionAllocateSheet({
 
   const canSubmitDefer = useMemo(() => deferDate.length >= 10, [deferDate])
 
-  if (!open || !tx) return null
+  if (!rendered || !tx) return null
 
   const row = tx
   const accounts = storage.getAccounts() ?? []
@@ -142,18 +149,40 @@ export function TransactionAllocateSheet({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[250] flex flex-col justify-end bg-black/45 p-0"
+    <motion.div
+      className="fixed inset-0 z-[250] flex flex-col justify-end p-0"
       role="presentation"
+      initial={false}
+      animate={{
+        opacity: open ? 1 : 0,
+        backgroundColor: open ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0)',
+      }}
+      transition={
+        reduceMotion
+          ? { duration: 0.01 }
+          : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }
+      }
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
+      onAnimationComplete={() => {
+        if (!open) setRendered(false)
+      }}
     >
-      <div
+      <motion.div
         className="max-h-[min(85vh,520px)] w-full overflow-y-auto rounded-t-2xl border border-border bg-background p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label="Allocate transaction"
+        initial={false}
+        animate={{
+          y: open ? 0 : 28,
+        }}
+        transition={
+          reduceMotion
+            ? { duration: 0.01 }
+            : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }
+        }
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mb-3 h-1 w-10 shrink-0 rounded-full bg-muted" />
@@ -390,7 +419,7 @@ export function TransactionAllocateSheet({
             </Button>
           </div>
         ) : null}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
