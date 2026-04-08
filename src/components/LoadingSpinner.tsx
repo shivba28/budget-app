@@ -19,11 +19,16 @@ export function LoadingSpinner({
       role="status"
       aria-live="polite"
     >
-      <div
-        className="size-9 animate-spin rounded-full border-2 border-muted border-t-foreground"
-        aria-hidden
-      />
-      <span className="text-sm font-medium text-foreground">{label}</span>
+      <div className="w-full max-w-sm px-4">
+        <div className="animate-pulse space-y-3" aria-hidden>
+          <div className="h-4 w-2/3 rounded bg-muted" />
+          <div className="h-4 w-full rounded bg-muted/70" />
+          <div className="h-4 w-5/6 rounded bg-muted/60" />
+        </div>
+        <span className="mt-4 block text-center text-sm font-medium text-foreground">
+          {label}
+        </span>
+      </div>
     </div>
   )
 }

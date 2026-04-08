@@ -5,7 +5,6 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Calendar, Plane } from 'lucide-react'
 import { CATEGORIES } from '../constants/categories'
 import { ErrorRetry } from '../components/ErrorRetry'
-import { LoadingSpinner } from '../components/LoadingSpinner'
 import {
   filterTransactionsByVisibleAccounts,
   formatCurrencyAmount,
@@ -35,6 +34,34 @@ import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
 import { cn } from '@/lib/utils'
 import './Page.css'
 import './Transactions.css'
+
+function TransactionsSkeleton({ label }: { readonly label: string }): ReactElement {
+  return (
+    <div className="py-6" role="status" aria-live="polite">
+      <p className="mb-4 text-center text-sm font-medium text-foreground">
+        {label}
+      </p>
+      <div className="animate-pulse space-y-3">
+        <div className="h-10 rounded-xl border border-border bg-muted/30" />
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            // eslint-disable-next-line react/no-array-index-key
+            key={i}
+            className="rounded-xl border border-border bg-background px-4 py-3 shadow-xs"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="h-3 w-24 rounded bg-muted/60" />
+                <div className="h-4 w-3/4 rounded bg-muted" />
+              </div>
+              <div className="h-4 w-20 rounded bg-muted/70" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** Muted left accent for table rows (matches static budget-tracker.html). */
 function categoryAccentRgba(hex: string, alpha: number): string {
@@ -617,8 +644,10 @@ export function Transactions(): ReactElement {
 
       <div ref={scrollRef} className="tx-scroll">
         {bootstrapLoading && rows.length === 0 ? (
-          <LoadingSpinner label="Loading transactions…" />
+          <TransactionsSkeleton label="Loading transactions…" />
         ) : null}
+
+        {syncing ? <TransactionsSkeleton label="Syncing transactions…" /> : null}
 
         {showInitialError ? (
           <div className="tx-screen-head tx-screen-head--embedded">
@@ -662,7 +691,7 @@ export function Transactions(): ReactElement {
           </Card>
         ) : null}
 
-        {filteredRows.length > 0 && !bootstrapLoading ? (
+        {filteredRows.length > 0 && !bootstrapLoading && !syncing ? (
           <div className="tx-accordion-wrap">
             <p className="tx-accordion-hint">
               Expand a row for account, category, and allocation.

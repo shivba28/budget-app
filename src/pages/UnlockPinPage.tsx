@@ -88,6 +88,10 @@ export function UnlockPinPage(): ReactElement {
     try {
       await unlockWithPasskeyFlow()
       await refresh()
+      // WebKit can apply Set-Cookie from the passkey verify slightly after the response;
+      // a second /me avoids a false “still locked” state until reload.
+      await new Promise((r) => window.setTimeout(r, 250))
+      await refresh()
       await onUnlocked()
       navigate('/app/transactions', { replace: true })
     } catch (err) {
