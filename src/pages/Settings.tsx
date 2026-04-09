@@ -690,7 +690,7 @@ export function Settings(): ReactElement {
             </CardContent>
           </Card>
 
-          <h2 className="page__subtitle mt-6">Categories</h2>
+          <h2 className="page__subtitle mt-10">Categories</h2>
           <Card className="shadow-xs">
             <CardContent className="flex flex-col gap-3 py-4">
               <p className="text-sm text-muted-foreground">
