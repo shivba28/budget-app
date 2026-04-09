@@ -93,9 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   }, [])
 
   const onUnlocked = useCallback(async () => {
+    // Always clear client-side inactivity lock on any successful unlock (PIN or passkey).
+    // bootstrapOnce only gates the one-time server cache hydrate; skipping it must not skip this.
+    setClientLocked(false)
     if (bootstrapOnce.current) return
     bootstrapOnce.current = true
-    setClientLocked(false)
     try {
       await hydrateServerCachesAfterLogin()
       try {

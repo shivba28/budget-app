@@ -14,6 +14,12 @@ import { fetchTransactionsFromServer } from './serverData'
 export type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
 
 let syncInFlight: Promise<Transaction[]> | null = null
+
+/** True while {@link refreshTransactionsFromBackend} is running (including from unlock or background). */
+export function isBankTransactionSyncInFlight(): boolean {
+  return syncInFlight !== null
+}
+
 const syncProgressListeners = new Set<
   ((p: {
     phase:

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,8 +11,15 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/contexts/AuthContext'
+import { refreshTransactionsFromBackend } from '@/lib/api'
 import { unlockWithPasskeyFlow } from '@/lib/passkeyFlow'
-import { logoutSync, startGoogleSignIn, verifyPinRequest } from '@/lib/syncApi'
+import * as storage from '@/lib/storage'
+import {
+  logoutSync,
+  startGoogleSignIn,
+  verifyPinRequest,
+  waitForSessionPinUnlocked,
+} from '@/lib/syncApi'
 import { webAuthnSupported } from '@/lib/webauthnClient'
 import './Page.css'
 
@@ -24,7 +31,6 @@ export function UnlockPinPage(): ReactElement {
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const autoPasskeyAttempted = useRef(false)
 
   useEffect(() => {
     void refresh()
@@ -60,8 +66,11 @@ export function UnlockPinPage(): ReactElement {
     setBusy(true)
     try {
       await verifyPinRequest(pin)
-      await refresh()
       await onUnlocked()
+      if (storage.hasLinkedBankAccountsForSync()) {
+        void refreshTransactionsFromBackend({ throwOnFailure: false })
+      }
+      await refresh()
       navigate('/app/transactions', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -87,13 +96,21 @@ export function UnlockPinPage(): ReactElement {
     setBusy(true)
     try {
       await unlockWithPasskeyFlow()
-      await refresh()
-      // WebKit can apply Set-Cookie from the passkey verify slightly after the response;
-      // a second /me avoids a false “still locked” state until reload.
-      await new Promise((r) => window.setTimeout(r, 250))
-      await refresh()
+      const me = await waitForSessionPinUnlocked({ maxMs: 8000, intervalMs: 100 })
+      if (!me.authenticated || !me.pinConfigured || !me.pinUnlocked) {
+        throw new Error(
+          'Unlock did not complete in the browser. Refresh the page and try again.',
+        )
+      }
+      // Run before refresh so we never render <Navigate to="/app/…" /> while clientLocked
+      // is still true (inactivity lock) or before hydrate runs.
       await onUnlocked()
+      if (storage.hasLinkedBankAccountsForSync()) {
+        void refreshTransactionsFromBackend({ throwOnFailure: false })
+      }
+      await refresh()
       navigate('/app/transactions', { replace: true })
+      window.setTimeout(() => void refresh(), 400)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Passkey sign-in failed')
     } finally {
@@ -102,16 +119,6 @@ export function UnlockPinPage(): ReactElement {
   }
 
   const canPasskey = hasPasskeys && webAuthnSupported()
-
-  useEffect(() => {
-    if (status !== 'need_unlock') return
-    if (!canPasskey) return
-    if (busy) return
-    if (autoPasskeyAttempted.current) return
-    autoPasskeyAttempted.current = true
-    void onPasskeyUnlock()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, canPasskey])
 
   return (
     <main className="page page--fill flex min-h-0 flex-1 flex-col justify-center px-4 py-8">
@@ -140,7 +147,7 @@ export function UnlockPinPage(): ReactElement {
                     ? 'Waiting…'
                     : error
                       ? 'Try passkey again'
-                      : 'Unlock with passkey'}
+                      : 'Use passkey to unlock'}
                 </Button>
               </div>
             ) : null}

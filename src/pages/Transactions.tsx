@@ -11,6 +11,7 @@ import {
   getCategoryLabel,
   getCategoryPillColor,
   isDeferredOutOfViewMonth,
+  isBankTransactionSyncInFlight,
   loadTransactionsFromCacheOrFetch,
   refreshTransactionsFromBackend,
   resolveDisplayCategory,
@@ -213,6 +214,31 @@ export function Transactions(): ReactElement {
       window.removeEventListener(storage.BANK_SYNC_STARTED_EVENT, onStart)
       window.removeEventListener(storage.BANK_SYNC_ENDED_EVENT, onEnd)
     }
+  }, [])
+
+  /** Sync may have started on the unlock screen; join in-flight run for progress + row updates. */
+  useEffect(() => {
+    if (!isBankTransactionSyncInFlight()) return
+    setSyncing(true)
+    setSyncHint(storage.getLastBankSyncAt() === null ? 'full' : 'refresh')
+    void refreshTransactionsFromBackend({
+      throwOnFailure: false,
+      onProgress: (p) => {
+        setSyncProgress({
+          done: p.done,
+          total: p.total,
+          phase: p.phase,
+          accountName: p.accountName,
+        })
+      },
+    })
+      .then(() => {
+        setRows(storage.getTransactions() ?? [])
+        setCategoryOverrides({ ...storage.getCategoryOverrides() })
+      })
+      .catch(() => {
+        /* same as background sync: keep cache */
+      })
   }, [])
 
   useEffect(() => {

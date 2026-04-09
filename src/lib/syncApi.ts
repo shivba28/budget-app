@@ -123,6 +123,32 @@ export async function fetchAuthMe(): Promise<AuthMeResponse> {
   }
 }
 
+/**
+ * After WebAuthn authenticate/verify, the response sets a new session cookie. Some browsers
+ * do not expose that cookie to the next `fetch()` immediately; poll /me until unlock is visible.
+ */
+export async function waitForSessionPinUnlocked(options?: {
+  maxMs?: number
+  intervalMs?: number
+}): Promise<AuthMeResponse> {
+  const maxMs = options?.maxMs ?? 8000
+  const intervalMs = options?.intervalMs ?? 100
+  const deadline = Date.now() + maxMs
+  let last = await fetchAuthMe()
+  while (Date.now() < deadline) {
+    if (
+      last.authenticated &&
+      last.pinConfigured &&
+      last.pinUnlocked
+    ) {
+      return last
+    }
+    await new Promise((r) => window.setTimeout(r, intervalMs))
+    last = await fetchAuthMe()
+  }
+  return last
+}
+
 export async function logoutSync(): Promise<void> {
   await fetch(
     `${getSyncApiBase()}/api/auth/logout`,
