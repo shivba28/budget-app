@@ -30,6 +30,7 @@ import {
 } from '@/lib/syncApi'
 import { webAuthnSupported } from '@/lib/webauthnClient'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import {
   disconnectEnrollment,
@@ -523,21 +524,16 @@ export function Settings(): ReactElement {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Theme</p>
                 <p className="text-xs text-muted-foreground">
-                  Off = light, on = dark
+                  Light or dark appearance for the app.
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-xs text-muted-foreground">Light</span>
-                <input
-                  type="checkbox"
-                  checked={themeDark}
-                  onChange={(e) =>
-                    applyThemePreference(e.target.checked ? 'dark' : 'light')
-                  }
-                  aria-label="Toggle dark theme"
-                />
-                <span className="text-xs text-muted-foreground">Dark</span>
-              </label>
+              <Switch
+                checked={themeDark}
+                onCheckedChange={(on) =>
+                  applyThemePreference(on ? 'dark' : 'light')
+                }
+                aria-label="Use dark theme"
+              />
             </CardContent>
           </Card>
 
@@ -699,23 +695,25 @@ export function Settings(): ReactElement {
               {customCategoryError ? (
                 <p className="text-sm text-destructive">{customCategoryError}</p>
               ) : null}
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Input
+                  className="min-w-0 flex-1"
                   value={newCategoryLabel}
                   onChange={(e) => setNewCategoryLabel(e.target.value)}
                   placeholder="New category name"
                 />
-                <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2">
-                  <span className="text-xs text-muted-foreground">Color</span>
-                  <input
-                    type="color"
-                    value={newCategoryColor}
-                    onChange={(e) => setNewCategoryColor(e.target.value)}
-                    aria-label="Pick category color"
-                    className="h-9 w-9 border-0 bg-transparent p-0"
-                  />
-                </label>
-                <Button type="button" onClick={onAddCustomCategory}>
+                <input
+                  type="color"
+                  value={newCategoryColor}
+                  onChange={(e) => setNewCategoryColor(e.target.value)}
+                  aria-label="Pick category color"
+                  className="settings-color-input size-8 shrink-0 overflow-hidden rounded-full"
+                />
+                <Button
+                  type="button"
+                  className="shrink-0"
+                  onClick={onAddCustomCategory}
+                >
                   Add
                 </Button>
               </div>
@@ -762,7 +760,7 @@ export function Settings(): ReactElement {
                               })()
                             }
                             aria-label={`Pick color for ${c.label}`}
-                            className="h-9 w-9 shrink-0 border-0 bg-transparent p-0"
+                            className="settings-color-input size-8 shrink-0 overflow-hidden rounded-full"
                           />
                           <Button
                             type="button"
@@ -827,7 +825,7 @@ export function Settings(): ReactElement {
                               })()
                             }
                             aria-label={`Pick color for ${c.label}`}
-                            className="h-9 w-9 shrink-0 border-0 bg-transparent p-0"
+                            className="settings-color-input size-8 shrink-0 overflow-hidden rounded-full"
                           />
                         </li>
                       ))}

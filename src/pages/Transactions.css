@@ -385,6 +385,14 @@
   will-change: width;
 }
 
+.light .tx-sync-progress {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.light .tx-sync-progress__bar {
+  background: #000;
+}
+
 @media (prefers-color-scheme: dark) {
   .tx-toolbar,
   .tx-accordion-wrap {
