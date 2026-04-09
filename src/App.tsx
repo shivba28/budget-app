@@ -1,10 +1,12 @@
 import type { ReactElement } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { BudgetAlertHost } from './components/BudgetAlertHost'
 import { SwipeNavigationWrapper } from './components/SwipeNavigationWrapper'
 import { ProtectedShell } from './components/ProtectedShell'
 import { LoadingSpinner } from './components/LoadingSpinner'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import * as storage from './lib/storage'
 import { hasSeenLanding } from './lib/storage'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPasskeyPage } from './pages/SetupPasskeyPage'
@@ -43,6 +45,17 @@ function RootEntry(): ReactElement {
 }
 
 export default function App(): ReactElement {
+  useEffect(() => {
+    const pref = storage.getThemePreference()
+    const root = document.documentElement
+    root.classList.remove('dark', 'light')
+    if (pref === 'dark') root.classList.add('dark')
+    if (pref === 'light') root.classList.add('light')
+
+    const cached = storage.loadCategoriesFromDisk()
+    if (cached) storage.saveCategories(cached)
+  }, [])
+
   return (
     <BrowserRouter>
       <AuthProvider>

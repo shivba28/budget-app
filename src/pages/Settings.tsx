@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTellerConnect } from 'teller-connect-react'
 import type { TellerConnectEnrollment } from 'teller-connect-react'
-import { CATEGORIES } from '../constants/categories'
+import { listAllCategories } from '@/lib/categoriesList'
 import { MONTHLY_BUDGET_DEFAULTS_BY_CATEGORY } from '../constants/monthlyBudgetDefaults'
 import type { Account } from '../lib/domain'
 import { ErrorRetry } from '../components/ErrorRetry'
@@ -39,12 +39,18 @@ import {
   loadLinkedAccounts,
   syncAccountsNow,
 } from '../lib/api'
+import {
+  createCategoryOnServer,
+  deleteCategoryOnServer,
+  fetchCategoriesFromServer,
+  updateCategoryColorOnServer,
+} from '@/lib/serverData'
 import './Page.css'
 import './Settings.css'
 
 type FailedOp = 'connect' | 'sync' | 'disconnect' | null
 
-type SettingsTab = 'account' | 'banks' | 'budgets'
+type SettingsTab = 'app settings' | 'banks' | 'budgets'
 
 type BudgetFormState = {
   readonly categoryInputs: Record<string, string>
@@ -65,7 +71,7 @@ function parseUsdBudgetInput(raw: string): ParsedUsd {
 function budgetFormFromStorage(): BudgetFormState {
   const s = storage.getMonthlyBudgetsStored()
   const categoryInputs: Record<string, string> = {}
-  for (const c of CATEGORIES) {
+  for (const c of listAllCategories()) {
     const v = s.categories[c.id]
     categoryInputs[c.id] = v !== undefined ? String(v) : ''
   }
@@ -82,7 +88,7 @@ function buildCategoryOverridesFromForm(
   | { ok: true; categories: Partial<Record<string, number>> }
   | { ok: false; message: string } {
   const categories: Partial<Record<string, number>> = {}
-  for (const c of CATEGORIES) {
+  for (const c of listAllCategories()) {
     const r = parseUsdBudgetInput(form.categoryInputs[c.id] ?? '')
     if (r === 'invalid') {
       return { ok: false, message: `Invalid amount for ${c.label}.` }
@@ -124,7 +130,16 @@ export function Settings(): ReactElement {
   const navigate = useNavigate()
   const { email, lastSyncMessage, clearSyncMessage, hasPin, refresh } = useAuth()
   const location = useLocation()
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('app settings')
+  const [themeDark, setThemeDark] = useState(
+    () => storage.getThemePreference() === 'dark',
+  )
+  const [newCategoryLabel, setNewCategoryLabel] = useState('')
+  const [newCategoryColor, setNewCategoryColor] = useState('#94a3b8')
+  const [customCategoryError, setCustomCategoryError] = useState<string | null>(
+    null,
+  )
+  const [categoriesTick, setCategoriesTick] = useState(0)
   const [accountUiTick, setAccountUiTick] = useState(0)
   const [accountError, setAccountError] = useState<string | null>(null)
   const [curPin, setCurPin] = useState('')
@@ -166,9 +181,51 @@ export function Settings(): ReactElement {
   }, [])
 
   useEffect(() => {
+    const on = (): void => setCategoriesTick((n) => n + 1)
+    window.addEventListener(storage.CATEGORIES_CHANGED_EVENT, on)
+    return () => window.removeEventListener(storage.CATEGORIES_CHANGED_EVENT, on)
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      const cats = await fetchCategoriesFromServer()
+      if (cats) storage.saveCategories(cats)
+    })()
+  }, [])
+
+  const categories = useMemo(() => {
+    void categoriesTick
+    return storage.getCategories() ?? []
+  }, [categoriesTick])
+
+  function applyThemePreference(next: 'light' | 'dark'): void {
+    storage.setThemePreference(next)
+    const root = document.documentElement
+    root.classList.remove('dark', 'light')
+    root.classList.add(next === 'dark' ? 'dark' : 'light')
+    setThemeDark(next === 'dark')
+  }
+
+  function onAddCustomCategory(): void {
+    setCustomCategoryError(null)
+    const label = newCategoryLabel.trim()
+    if (!label) return
+    void (async () => {
+      const id = await createCategoryOnServer({ label, color: newCategoryColor })
+      if (!id) {
+        setCustomCategoryError('Could not create category. Try again.')
+        return
+      }
+      setNewCategoryLabel('')
+      const cats = await fetchCategoriesFromServer()
+      if (cats) storage.saveCategories(cats)
+    })()
+  }
+
+  useEffect(() => {
     const s = location.state as { openSettingsTab?: SettingsTab } | undefined
     const t = s?.openSettingsTab
-    if (t !== 'banks' && t !== 'budgets' && t !== 'account') return
+    if (t !== 'banks' && t !== 'budgets' && t !== 'app settings') return
     setSettingsTab(t)
     navigate(`${location.pathname}${location.search}`, { replace: true, state: {} })
   }, [location.state, location.pathname, location.search, navigate])
@@ -409,16 +466,16 @@ export function Settings(): ReactElement {
           type="button"
           role="tab"
           id="settings-tab-account"
-          aria-selected={settingsTab === 'account'}
+          aria-selected={settingsTab === 'app settings'}
           aria-controls="settings-panel-account"
           className={
-            settingsTab === 'account'
+            settingsTab === 'app settings'
               ? 'settings-tab settings-tab--active'
               : 'settings-tab'
           }
-          onClick={() => setSettingsTab('account')}
+          onClick={() => setSettingsTab('app settings')}
         >
-          Account
+          App Settings
         </button>
         <button
           type="button"
@@ -453,13 +510,37 @@ export function Settings(): ReactElement {
       </div>
 
       <div ref={settingsScrollRef} className="settings-scroll">
-      {settingsTab === 'account' ? (
+      {settingsTab === 'app settings' ? (
         <section
           id="settings-panel-account"
           role="tabpanel"
           aria-labelledby="settings-tab-account"
           className="settings-block settings-panel"
         >
+          <h2 className="page__subtitle">App settings</h2>
+          <Card className="shadow-xs mb-3">
+            <CardContent className="flex items-center justify-between gap-3 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Theme</p>
+                <p className="text-xs text-muted-foreground">
+                  Off = light, on = dark
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-xs text-muted-foreground">Light</span>
+                <input
+                  type="checkbox"
+                  checked={themeDark}
+                  onChange={(e) =>
+                    applyThemePreference(e.target.checked ? 'dark' : 'light')
+                  }
+                  aria-label="Toggle dark theme"
+                />
+                <span className="text-xs text-muted-foreground">Dark</span>
+              </label>
+            </CardContent>
+          </Card>
+
           <h2 className="page__subtitle">Account &amp; security</h2>
           <Card className="shadow-xs">
             <CardContent className="flex flex-col gap-4 py-4">
@@ -606,6 +687,153 @@ export function Settings(): ReactElement {
                   Forgot code — reset with Google
                 </Button>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <h2 className="page__subtitle mt-6">Categories</h2>
+          <Card className="shadow-xs">
+            <CardContent className="flex flex-col gap-3 py-4">
+              <p className="text-sm text-muted-foreground">
+                Add your own categories for allocations and filters.
+              </p>
+              {customCategoryError ? (
+                <p className="text-sm text-destructive">{customCategoryError}</p>
+              ) : null}
+              <div className="flex gap-2">
+                <Input
+                  value={newCategoryLabel}
+                  onChange={(e) => setNewCategoryLabel(e.target.value)}
+                  placeholder="New category name"
+                />
+                <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2">
+                  <span className="text-xs text-muted-foreground">Color</span>
+                  <input
+                    type="color"
+                    value={newCategoryColor}
+                    onChange={(e) => setNewCategoryColor(e.target.value)}
+                    aria-label="Pick category color"
+                    className="h-9 w-9 border-0 bg-transparent p-0"
+                  />
+                </label>
+                <Button type="button" onClick={onAddCustomCategory}>
+                  Add
+                </Button>
+              </div>
+
+              <div className="mt-2">
+                <p className="text-sm font-medium text-foreground mb-2">
+                  Your categories
+                </p>
+                {categories.filter((c) => c.source === 'user').length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No custom categories yet.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {categories
+                      .filter((c) => c.source === 'user')
+                      .map((c) => (
+                        <li
+                          key={c.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span
+                              className="size-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: c.color }}
+                              aria-hidden
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {c.label}
+                            </span>
+                          </div>
+                          <input
+                            type="color"
+                            value={c.color}
+                            onChange={(e) =>
+                              void (async () => {
+                                const ok = await updateCategoryColorOnServer({
+                                  id: c.id,
+                                  color: e.target.value,
+                                })
+                                if (!ok) return
+                                const cats = await fetchCategoriesFromServer()
+                                if (cats) storage.saveCategories(cats)
+                              })()
+                            }
+                            aria-label={`Pick color for ${c.label}`}
+                            className="h-9 w-9 shrink-0 border-0 bg-transparent p-0"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void (async () => {
+                                const ok = await deleteCategoryOnServer(c.id)
+                                if (!ok) return
+                                const cats = await fetchCategoriesFromServer()
+                                if (cats) storage.saveCategories(cats)
+                              })()
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="mt-2">
+                <p className="text-sm font-medium text-foreground mb-2">
+                  Bank (Teller) categories
+                </p>
+                {categories.filter((c) => c.source === 'teller').length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No bank categories yet. They’ll appear after a sync.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {categories
+                      .filter((c) => c.source === 'teller')
+                      .map((c) => (
+                        <li
+                          key={c.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span
+                              className="size-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: c.color }}
+                              aria-hidden
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {c.label}
+                            </span>
+                          </div>
+                          <input
+                            type="color"
+                            value={c.color}
+                            onChange={(e) =>
+                              void (async () => {
+                                const ok = await updateCategoryColorOnServer({
+                                  id: c.id,
+                                  color: e.target.value,
+                                })
+                                if (!ok) return
+                                const cats = await fetchCategoriesFromServer()
+                                if (cats) storage.saveCategories(cats)
+                              })()
+                            }
+                            aria-label={`Pick color for ${c.label}`}
+                            className="h-9 w-9 shrink-0 border-0 bg-transparent p-0"
+                          />
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -763,7 +991,7 @@ export function Settings(): ReactElement {
                 </p>
               ) : null}
               <ul className="flex flex-col gap-3">
-                {CATEGORIES.map((c) => (
+                {listAllCategories().map((c) => (
                   <li key={c.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
                     <label
                       htmlFor={`budget-cat-${c.id}`}

@@ -3,6 +3,13 @@ import type { MonthlyBudgetsStoredV1 } from '@/lib/storage'
 import * as storage from '@/lib/storage'
 import { userDataApi } from '@/lib/userDataApi'
 
+export type ServerCategory = {
+  id: string
+  label: string
+  color: string
+  source: 'teller' | 'user'
+}
+
 function mapServerTransaction(row: Record<string, unknown>): Transaction | null {
   const id = typeof row.id === 'string' ? row.id : null
   const accountId = typeof row.accountId === 'string' ? row.accountId : null
@@ -151,6 +158,66 @@ export async function putBudgetsToServer(
   }
 }
 
+export async function fetchCategoriesFromServer(): Promise<ServerCategory[] | null> {
+  try {
+    const { data } = await userDataApi.get<{ categories?: unknown }>('/categories')
+    const list = Array.isArray(data.categories) ? data.categories : []
+    const out: ServerCategory[] = []
+    for (const row of list) {
+      if (!row || typeof row !== 'object') continue
+      const r = row as Record<string, unknown>
+      const id = typeof r.id === 'string' ? r.id : ''
+      const label = typeof r.label === 'string' ? r.label : ''
+      const color = typeof r.color === 'string' ? r.color : '#94a3b8'
+      const source = r.source === 'user' ? 'user' : 'teller'
+      if (!id || !label) continue
+      out.push({ id, label, color, source })
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
+export async function createCategoryOnServer(input: {
+  label: string
+  color: string
+}): Promise<string | null> {
+  try {
+    const { data } = await userDataApi.post<{ id?: unknown }>('/categories', {
+      label: input.label,
+      color: input.color,
+    })
+    const id = typeof data?.id === 'string' ? data.id : null
+    return id
+  } catch {
+    return null
+  }
+}
+
+export async function updateCategoryColorOnServer(input: {
+  id: string
+  color: string
+}): Promise<boolean> {
+  try {
+    await userDataApi.patch(`/categories/${encodeURIComponent(input.id)}`, {
+      color: input.color,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function deleteCategoryOnServer(id: string): Promise<boolean> {
+  try {
+    await userDataApi.delete(`/categories/${encodeURIComponent(id)}`)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function hydrateServerCachesAfterLogin(): Promise<void> {
   let linkedAccounts: Account[] | null = null
   try {
@@ -159,6 +226,10 @@ export async function hydrateServerCachesAfterLogin(): Promise<void> {
     storage.saveAccounts(linkedAccounts)
   } catch {
     /* accounts will hydrate on first sync */
+  }
+  const cats = await fetchCategoriesFromServer()
+  if (cats) {
+    storage.saveCategories(cats)
   }
   const bud = await fetchBudgetsFromServer()
   if (bud) storage.saveMonthlyBudgets(bud, { skipRemote: true })

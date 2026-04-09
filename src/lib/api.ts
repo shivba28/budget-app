@@ -1,6 +1,5 @@
 import axios from 'axios'
 import type { TellerConnectEnrollment } from 'teller-connect-react'
-import { CATEGORIES } from '../constants/categories'
 import { CATEGORY_COLORS } from '../constants/colors'
 import { categorize, isKnownCategoryId } from './categories'
 import type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
@@ -10,6 +9,7 @@ import {
 } from './effectiveMonth'
 import * as storage from './storage'
 import { fetchTransactionsFromServer } from './serverData'
+import { listAllCategories } from '@/lib/categoriesList'
 
 export type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
 
@@ -689,11 +689,13 @@ export function getTellerApplicationId(): string {
 }
 
 export function getCategoryLabel(categoryId: string): string {
-  const found = CATEGORIES.find((c) => c.id === categoryId)
+  const found = listAllCategories().find((c) => c.id === categoryId)
   return found?.label ?? categoryId
 }
 
 export function getCategoryPillColor(categoryId: string): string {
+  const server = storage.getCategories()?.find((c) => c.id === categoryId)
+  if (server) return server.color
   const key = categoryId as keyof typeof CATEGORY_COLORS
   return CATEGORY_COLORS[key] ?? '#94a3b8'
 }

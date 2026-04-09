@@ -25,17 +25,25 @@ export const KEYS = {
   lastAuthEmail: 'budget-app:last-auth-email',
   /** Named trips (allocation targets); JSON Trip[] — unused; trips live on the server. */
   trips: 'budget-app:trips',
+  /** User-selected theme preference: 'light' | 'dark' */
+  theme: 'budget-app:theme',
+  /** Custom categories (JSON: {id,label}[]) */
+  customCategories: 'budget-app:custom-categories',
+  /** Server-backed categories cache (JSON: {id,label,color,source}[]) */
+  categories: 'budget-app:categories',
 } as const
 
 let serverMem: {
   accounts: Account[] | null
   transactions: Transaction[] | null
   trips: Trip[] | null
+  categories: CategoryRow[] | null
   monthlyBudgets: MonthlyBudgetsStoredV1 | null
 } = {
   accounts: null,
   transactions: null,
   trips: null,
+  categories: null,
   monthlyBudgets: null,
 }
 
@@ -61,6 +69,54 @@ export const MONTHLY_BUDGETS_CHANGED_EVENT = 'budget-app-monthly-budgets-changed
 export const BUDGET_ALERT_ACK_RESET_EVENT = 'budget-app-budget-alert-ack-reset'
 
 export const TRIPS_CHANGED_EVENT = 'budget-app-trips-changed'
+
+/** Fired when custom categories are added/removed. */
+export const CUSTOM_CATEGORIES_CHANGED_EVENT = 'budget-app-custom-categories-changed'
+
+/** Fired when server-backed categories list is updated. */
+export const CATEGORIES_CHANGED_EVENT = 'budget-app-categories-changed'
+
+export type CategoryRow = {
+  readonly id: string
+  readonly label: string
+  readonly color: string
+  readonly source: 'teller' | 'user'
+}
+
+export function getCategories(): CategoryRow[] | null {
+  return serverMem.categories
+}
+
+export function saveCategories(next: CategoryRow[]): void {
+  serverMem.categories = next
+  try {
+    writeJson(KEYS.categories, next)
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(CATEGORIES_CHANGED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadCategoriesFromDisk(): CategoryRow[] | null {
+  const raw = readJson(KEYS.categories)
+  if (!Array.isArray(raw)) return null
+  const out: CategoryRow[] = []
+  for (const v of raw) {
+    if (!v || typeof v !== 'object') continue
+    const r = v as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id : ''
+    const label = typeof r.label === 'string' ? r.label : ''
+    const color = typeof r.color === 'string' ? r.color : '#94a3b8'
+    const source = r.source === 'user' ? 'user' : 'teller'
+    if (!id || !label) continue
+    out.push({ id, label, color, source })
+  }
+  return out
+}
 
 export type MonthlyBudgetsStoredV1 = {
   readonly v: 1
@@ -138,6 +194,100 @@ function readJson(key: string): unknown {
 
 function writeJson<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value))
+}
+
+function dispatchCustomCategoriesChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(CUSTOM_CATEGORIES_CHANGED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+export type CustomCategory = {
+  readonly id: string
+  readonly label: string
+  /** Hex color (e.g. #22c55e) used for category pills. */
+  readonly color: string
+}
+
+function normalizeHexColor(input: string): string | null {
+  const s = input.trim()
+  if (!s) return null
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase()
+  if (/^[0-9a-fA-F]{6}$/.test(s)) return `#${s.toLowerCase()}`
+  return null
+}
+
+export function getCustomCategories(): CustomCategory[] {
+  const raw = readJson(KEYS.customCategories)
+  if (!Array.isArray(raw)) return []
+  const out: CustomCategory[] = []
+  for (const v of raw) {
+    if (!v || typeof v !== 'object') continue
+    const r = v as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id.trim() : ''
+    const label = typeof r.label === 'string' ? r.label.trim() : ''
+    const color = normalizeHexColor(typeof r.color === 'string' ? r.color : '') ?? '#94a3b8'
+    if (!id || !label) continue
+    out.push({ id, label, color })
+  }
+  // stable sort for UI
+  return out.sort((a, b) => a.label.localeCompare(b.label))
+}
+
+export function saveCustomCategories(next: CustomCategory[]): void {
+  writeJson(KEYS.customCategories, next)
+  dispatchCustomCategoriesChanged()
+}
+
+export function addCustomCategory(input: { id: string; label: string }): boolean {
+  const id = input.id.trim()
+  const label = input.label.trim()
+  if (!id || !label) return false
+  const next = getCustomCategories()
+  if (next.some((c) => c.id === id)) return false
+  saveCustomCategories([...next, { id, label, color: '#94a3b8' }])
+  return true
+}
+
+export function addCustomCategoryWithColor(input: {
+  id: string
+  label: string
+  color: string
+}): boolean {
+  const id = input.id.trim()
+  const label = input.label.trim()
+  const color = normalizeHexColor(input.color) ?? '#94a3b8'
+  if (!id || !label) return false
+  const next = getCustomCategories()
+  if (next.some((c) => c.id === id)) return false
+  saveCustomCategories([...next, { id, label, color }])
+  return true
+}
+
+export function updateCustomCategoryColor(id: string, color: string): void {
+  const hex = normalizeHexColor(color)
+  if (!hex) return
+  const next = getCustomCategories().map((c) => (c.id === id ? { ...c, color: hex } : c))
+  saveCustomCategories(next)
+}
+
+export function removeCustomCategory(id: string): void {
+  const next = getCustomCategories().filter((c) => c.id !== id)
+  saveCustomCategories(next)
+}
+
+export type ThemePreference = 'light' | 'dark'
+
+export function getThemePreference(): ThemePreference | null {
+  const raw = localStorage.getItem(KEYS.theme)
+  if (raw === 'light' || raw === 'dark') return raw
+  return null
+}
+
+export function setThemePreference(next: ThemePreference): void {
+  localStorage.setItem(KEYS.theme, next)
 }
 
 /** Teller tokens live on the server; always empty locally. */
@@ -294,5 +444,13 @@ export function clearAll(): void {
   localStorage.removeItem(KEYS.budgetNotificationsEnabled)
   localStorage.removeItem(KEYS.lastAuthEmail)
   localStorage.removeItem(KEYS.trips)
-  serverMem = { accounts: null, transactions: null, trips: null, monthlyBudgets: null }
+  localStorage.removeItem(KEYS.customCategories)
+  localStorage.removeItem(KEYS.categories)
+  serverMem = {
+    accounts: null,
+    transactions: null,
+    trips: null,
+    categories: null,
+    monthlyBudgets: null,
+  }
 }

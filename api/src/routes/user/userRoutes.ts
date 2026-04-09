@@ -9,6 +9,13 @@ import {
   transactionBelongsToUser,
 } from '../../db/transactionsRepo.js'
 import {
+  deleteCategoryForUser,
+  listCategoriesForUser,
+  updateCategoryColorForUser,
+  upsertCategory,
+  userCategoryIdFromLabel,
+} from '../../db/categoriesRepo.js'
+import {
   createTrip,
   deleteTrip,
   getTrip,
@@ -73,6 +80,102 @@ export function applyUserRoutes(app: Express): void {
     } catch (e) {
       console.error('[user/transactions]', e)
       res.status(500).json({ error: 'Could not load transactions' })
+    }
+  })
+
+  r.get('/categories', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    try {
+      const categories = await listCategoriesForUser(userId)
+      res.json({ categories })
+    } catch (e) {
+      console.error('[user/categories GET]', e)
+      res.status(500).json({ error: 'Could not load categories' })
+    }
+  })
+
+  r.post('/categories', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const body = req.body as Record<string, unknown>
+    const label = typeof body.label === 'string' ? body.label.trim() : ''
+    const color = typeof body.color === 'string' ? body.color : null
+    if (!label) {
+      res.status(400).json({ error: 'label is required' })
+      return
+    }
+    const id = userCategoryIdFromLabel(label)
+    try {
+      await upsertCategory({ userId, id, label, color, source: 'user' })
+      res.status(201).json({ id })
+    } catch (e) {
+      console.error('[user/categories POST]', e)
+      res.status(500).json({ error: 'Could not create category' })
+    }
+  })
+
+  r.patch('/categories/:id', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const id = req.params.id
+    if (!id) {
+      res.status(400).json({ error: 'Missing id' })
+      return
+    }
+    const body = req.body as Record<string, unknown>
+    const color = typeof body.color === 'string' ? body.color : ''
+    if (!color) {
+      res.status(400).json({ error: 'color is required' })
+      return
+    }
+    try {
+      const ok = await updateCategoryColorForUser({ userId, id, color })
+      if (!ok) {
+        res.status(404).json({ error: 'Not found' })
+        return
+      }
+      res.status(204).send()
+    } catch (e) {
+      console.error('[user/categories PATCH]', e)
+      res.status(500).json({ error: 'Could not update category' })
+    }
+  })
+
+  r.delete('/categories/:id', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const id = req.params.id
+    if (!id) {
+      res.status(400).json({ error: 'Missing id' })
+      return
+    }
+    try {
+      const ok = await deleteCategoryForUser(userId, id)
+      if (!ok) {
+        res.status(404).json({ error: 'Not found' })
+        return
+      }
+      res.status(204).send()
+    } catch (e) {
+      console.error('[user/categories DELETE]', e)
+      res.status(500).json({ error: 'Could not delete category' })
     }
   })
 

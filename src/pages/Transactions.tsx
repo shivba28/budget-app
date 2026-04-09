@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { CATEGORIES } from '../constants/categories'
+import { listAllCategories } from '@/lib/categoriesList'
 import { ErrorRetry } from '../components/ErrorRetry'
 import {
   filterTransactionsByVisibleAccounts,
@@ -631,7 +631,7 @@ export function Transactions(): ReactElement {
                   onChange={(e) => setCategoryFilter(e.target.value)}
                 >
                   <option value="all">All categories</option>
-                  {CATEGORIES.map((c) => (
+                  {listAllCategories().map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.label}
                     </option>

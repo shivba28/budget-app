@@ -1,6 +1,8 @@
 /**
  * Set allocation for a transaction (PATCH /api/user/transactions/:id/allocate).
  */
+import * as storage from '@/lib/storage'
+
 export async function allocateTransaction(
   transactionId: string,
   input:
@@ -9,20 +11,54 @@ export async function allocateTransaction(
 ): Promise<boolean> {
   const { allocateTransactionOnServer } = await import('@/lib/serverData')
   if (input.mode === 'trip') {
-    return allocateTransactionOnServer(transactionId, {
+    const ok = await allocateTransactionOnServer(transactionId, {
       type: 'trip',
       trip_id: input.tripId,
     })
+    if (ok) {
+      const txs = storage.getTransactions()
+      if (txs) {
+        storage.saveTransactions(
+          txs.map((t) =>
+            t.id === transactionId ? { ...t, tripId: input.tripId } : t,
+          ),
+        )
+      }
+    }
+    return ok
   }
-  return allocateTransactionOnServer(transactionId, {
+  const eff = input.effectiveDate.slice(0, 10)
+  const ok = await allocateTransactionOnServer(transactionId, {
     type: 'date',
-    effective_date: input.effectiveDate.slice(0, 10),
+    effective_date: eff,
   })
+  if (ok) {
+    const txs = storage.getTransactions()
+    if (txs) {
+      storage.saveTransactions(
+        txs.map((t) =>
+          t.id === transactionId ? { ...t, effectiveDate: eff } : t,
+        ),
+      )
+    }
+  }
+  return ok
 }
 
 export async function clearTransactionAllocation(
   transactionId: string,
 ): Promise<boolean> {
   const { allocateTransactionOnServer } = await import('@/lib/serverData')
-  return allocateTransactionOnServer(transactionId, { type: 'none' })
+  const ok = await allocateTransactionOnServer(transactionId, { type: 'none' })
+  if (ok) {
+    const txs = storage.getTransactions()
+    if (txs) {
+      storage.saveTransactions(
+        txs.map((t) =>
+          t.id === transactionId ? { ...t, tripId: null, effectiveDate: null } : t,
+        ),
+      )
+    }
+  }
+  return ok
 }

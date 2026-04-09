@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS transactions (
   FOREIGN KEY (user_id, account_id) REFERENCES accounts(user_id, id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#94a3b8',
+  source TEXT NOT NULL DEFAULT 'teller',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS budgets (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,6 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions (user_id, 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_account ON transactions (user_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts (user_id);
 CREATE INDEX IF NOT EXISTS idx_trips_user ON trips (user_id);
+CREATE INDEX IF NOT EXISTS idx_categories_user ON categories (user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_google_sub_expires ON sessions (google_sub, expires_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials (user_id);
 CREATE INDEX IF NOT EXISTS idx_webauthn_last_used ON webauthn_credentials (user_id, last_used_at DESC);

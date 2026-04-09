@@ -16,7 +16,7 @@ import {
   persistCategoryOverride,
   resolveDisplayCategory,
 } from '@/lib/api'
-import { CATEGORIES } from '@/constants/categories'
+import { listAllCategories } from '@/lib/categoriesList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -47,6 +47,8 @@ export function TransactionAllocateSheet({
   const [newStart, setNewStart] = useState('')
   const [newEnd, setNewEnd] = useState('')
   const [newBudget, setNewBudget] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     const onTrips = (): void => setTrips(storage.getTrips())
@@ -62,6 +64,8 @@ export function TransactionAllocateSheet({
   useEffect(() => {
     if (!open || !tx) return
     setPanel(initialPanel ?? 'menu')
+    setSaving(false)
+    setSaveError(null)
     setDeferDate(
       typeof tx.effectiveDate === 'string' && tx.effectiveDate.length >= 10
         ? tx.effectiveDate.slice(0, 10)
@@ -80,6 +84,13 @@ export function TransactionAllocateSheet({
   const row = tx
   const accounts = storage.getAccounts() ?? []
   const accountLabel = formatTransactionAccountLabel(row.accountId, accounts)
+  const isDeferred =
+    typeof row.effectiveDate === 'string' &&
+    row.effectiveDate.length >= 10 &&
+    row.effectiveDate.slice(0, 10) !== row.date.slice(0, 10)
+  const deferredLabel = isDeferred ? row.effectiveDate!.slice(0, 10) : null
+  const tripName =
+    row.tripId != null ? trips.find((t) => t.id === row.tripId)?.name ?? null : null
   const effectiveCategoryId = resolveDisplayCategory(
     row,
     storage.getCategoryOverrides(),
@@ -100,25 +111,50 @@ export function TransactionAllocateSheet({
 
   async function applyDefer(): Promise<void> {
     if (!canSubmitDefer) return
-    const ok = await allocateTransaction(row.id, {
-      mode: 'effective',
-      effectiveDate: deferDate,
-    })
-    if (!ok) return
-    onApplied()
-    onClose()
+    if (saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const ok = await allocateTransaction(row.id, {
+        mode: 'effective',
+        effectiveDate: deferDate,
+      })
+      if (!ok) {
+        setSaveError('Could not save. Try again.')
+        return
+      }
+      onApplied()
+      onClose()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function pickTrip(tripId: number): Promise<void> {
-    const ok = await allocateTransaction(row.id, { mode: 'trip', tripId })
-    if (!ok) return
-    onApplied()
-    onClose()
+    if (saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const ok = await allocateTransaction(row.id, { mode: 'trip', tripId })
+      if (!ok) {
+        setSaveError('Could not save. Try again.')
+        return
+      }
+      onApplied()
+      onClose()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function submitNewTrip(): Promise<void> {
     const name = newName.trim()
     if (!name || newStart.length < 10) return
+    if (saving) return
     let budgetLimit: number | null = null
     const b = newBudget.trim().replace(/[$,]/g, '')
     if (b !== '') {
@@ -126,26 +162,57 @@ export function TransactionAllocateSheet({
       if (!Number.isFinite(n) || n < 0) return
       budgetLimit = Math.round(n * 100) / 100
     }
-    const { createTripOnServer } = await import('@/lib/serverData')
-    const trip = await createTripOnServer({
-      name,
-      startDate: newStart,
-      endDate: newEnd.trim().length >= 10 ? newEnd.slice(0, 10) : null,
-      budgetLimit,
-      color: null,
-    })
-    if (!trip) return
-    const ok = await allocateTransaction(row.id, { mode: 'trip', tripId: trip.id })
-    if (!ok) return
-    onApplied()
-    onClose()
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const { createTripOnServer } = await import('@/lib/serverData')
+      const trip = await createTripOnServer({
+        name,
+        startDate: newStart,
+        endDate: newEnd.trim().length >= 10 ? newEnd.slice(0, 10) : null,
+        budgetLimit,
+        color: null,
+      })
+      if (!trip) {
+        setSaveError('Could not create trip. Try again.')
+        return
+      }
+      const ok = await allocateTransaction(row.id, {
+        mode: 'trip',
+        tripId: trip.id,
+      })
+      if (!ok) {
+        setSaveError('Could not save. Try again.')
+        return
+      }
+      onApplied()
+      onClose()
+    } catch (e) {
+      setSaveError(
+        e instanceof Error ? e.message : 'Could not save. Try again.',
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function clearAlloc(): Promise<void> {
-    const ok = await clearTransactionAllocation(row.id)
-    if (!ok) return
-    onApplied()
-    onClose()
+    if (saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const ok = await clearTransactionAllocation(row.id)
+      if (!ok) {
+        setSaveError('Could not save. Try again.')
+        return
+      }
+      onApplied()
+      onClose()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -163,14 +230,14 @@ export function TransactionAllocateSheet({
           : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }
       }
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget && !saving) onClose()
       }}
       onAnimationComplete={() => {
         if (!open) setRendered(false)
       }}
     >
       <motion.div
-        className="max-h-[min(85vh,520px)] w-full overflow-y-auto rounded-t-2xl border border-border bg-background p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] shadow-lg"
+        className="max-h-[min(85vh,520px)] w-full overflow-y-auto overflow-x-hidden touch-pan-y rounded-t-2xl border border-border bg-background p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label="Allocate transaction"
@@ -213,30 +280,43 @@ export function TransactionAllocateSheet({
           </div>
         </div>
 
+        {saveError ? (
+          <p className="mb-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-destructive">
+            {saveError}
+          </p>
+        ) : saving ? (
+          <p className="mb-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Saving… Please wait.
+          </p>
+        ) : null}
+
         {panel === 'menu' ? (
           <div className="space-y-3">
             <Button
               type="button"
               variant="secondary"
               className="w-full justify-start"
+              disabled={saving}
               onClick={() => setPanel('defer')}
             >
               <Calendar className="mr-2 size-4 shrink-0" aria-hidden />
-              Defer to date
+              {deferredLabel ? `Effective date: ${deferredLabel}` : 'Defer to date'}
             </Button>
             <Button
               type="button"
               variant="secondary"
               className="w-full justify-start"
+              disabled={saving}
               onClick={() => setPanel('trip')}
             >
               <Plane className="mr-2 size-4 shrink-0" aria-hidden />
-              Add to trip
+              {tripName ? `Trip: ${tripName}` : 'Add to trip'}
             </Button>
             <Button
               type="button"
               variant="secondary"
               className="w-full justify-start"
+              disabled={saving}
               onClick={() => setPanel('category' as Panel)}
             >
               <Tag className="mr-2 size-4 shrink-0" aria-hidden />
@@ -249,6 +329,7 @@ export function TransactionAllocateSheet({
                 type="button"
                 variant="ghost"
                 className="w-full text-muted-foreground"
+                disabled={saving}
                 onClick={() => void clearAlloc()}
               >
                 Clear allocation
@@ -264,12 +345,13 @@ export function TransactionAllocateSheet({
               variant="ghost"
               size="sm"
               className="-ml-2 mb-1"
+              disabled={saving}
               onClick={() => setPanel('menu')}
             >
               ← Back
             </Button>
             <ul className="max-h-64 space-y-1 overflow-y-auto">
-              {CATEGORIES.map((c) => (
+              {listAllCategories().map((c) => (
                 <li key={c.id}>
                   <button
                     type="button"
@@ -278,6 +360,7 @@ export function TransactionAllocateSheet({
                       'hover:bg-muted/60',
                     )}
                     onClick={() => {
+                      if (saving) return
                       persistCategoryOverride(row.id, c.id)
                       onApplied()
                       onClose()
@@ -303,6 +386,7 @@ export function TransactionAllocateSheet({
               variant="ghost"
               size="sm"
               className="-ml-2 mb-1"
+              disabled={saving}
               onClick={() => setPanel('menu')}
             >
               ← Back
@@ -318,10 +402,10 @@ export function TransactionAllocateSheet({
             <Button
               type="button"
               className="w-full"
-              disabled={!canSubmitDefer}
+              disabled={!canSubmitDefer || saving}
               onClick={() => void applyDefer()}
             >
-              Save
+              {saving ? 'Saving…' : 'Save'}
             </Button>
           </div>
         ) : null}
@@ -333,6 +417,7 @@ export function TransactionAllocateSheet({
               variant="ghost"
               size="sm"
               className="-ml-2 mb-1"
+              disabled={saving}
               onClick={() => setPanel('menu')}
             >
               ← Back
@@ -347,6 +432,7 @@ export function TransactionAllocateSheet({
                       'hover:bg-muted/60',
                     )}
                     onClick={() => void pickTrip(t.id)}
+                    disabled={saving}
                   >
                     <Plane className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{t.name}</span>
@@ -358,6 +444,7 @@ export function TransactionAllocateSheet({
               type="button"
               variant="outline"
               className="w-full"
+              disabled={saving}
               onClick={() => setPanel('newTrip')}
             >
               New trip
@@ -372,6 +459,7 @@ export function TransactionAllocateSheet({
               variant="ghost"
               size="sm"
               className="-ml-2 mb-1"
+              disabled={saving}
               onClick={() => setPanel('trip')}
             >
               ← Back
@@ -412,10 +500,10 @@ export function TransactionAllocateSheet({
             <Button
               type="button"
               className="w-full"
-              disabled={!newName.trim() || newStart.length < 10}
+              disabled={!newName.trim() || newStart.length < 10 || saving}
               onClick={() => void submitNewTrip()}
             >
-              Create &amp; assign
+              {saving ? 'Saving…' : 'Create & assign'}
             </Button>
           </div>
         ) : null}

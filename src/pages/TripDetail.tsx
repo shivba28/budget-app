@@ -179,17 +179,22 @@ export function TripDetail(): ReactElement {
 
       <div ref={scrollRef} className="summary-scroll space-y-3">
         {!editing ? (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
+          <div className="space-y-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => setEditing(true)}
+            >
               Edit trip
             </Button>
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
+              variant="outline"
+              className="w-full"
               onClick={() => void removeTrip()}
             >
-              Delete
+              Delete trip
             </Button>
           </div>
         ) : (

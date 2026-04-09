@@ -1,4 +1,4 @@
-import { CATEGORIES } from '../constants/categories'
+import { listAllCategories } from '@/lib/categoriesList'
 
 type Rule = { readonly pattern: RegExp; readonly categoryId: string }
 
@@ -44,5 +44,5 @@ export function categorize(description: string): string {
 }
 
 export function isKnownCategoryId(id: string): boolean {
-  return CATEGORIES.some((c) => c.id === id)
+  return listAllCategories().some((c) => c.id === id)
 }

@@ -21,6 +21,10 @@ import {
   getAllocationsForIds,
   upsertTransactionFromTeller,
 } from '../../db/transactionsRepo.js'
+import {
+  tellerCategoryIdFromLabel,
+  upsertCategory,
+} from '../../db/categoriesRepo.js'
 import { query } from '../../db/pool.js'
 import {
   addSessionToken,
@@ -298,7 +302,25 @@ export function applyTellerRoutes(app: Express): void {
           const p = parseTellerTransaction(raw, accountId, { accountType })
           if (p) {
             parsed.push(p)
+            // Auto-add/refresh categories seen from Teller.
+            // Use detailCategory (raw Teller label) when available; otherwise use the mapped category string.
+            const label = (p.detailCategory ?? p.category ?? '').trim()
+            if (label) {
+              const id = tellerCategoryIdFromLabel(label)
+              await upsertCategory({
+                userId,
+                id,
+                label,
+                source: 'teller',
+              })
+              await upsertTransactionFromTeller({
+                userId,
+                ...p,
+                category: id,
+              })
+            } else {
             await upsertTransactionFromTeller({ userId, ...p })
+            }
           }
         }
         if (newestId) {

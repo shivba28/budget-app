@@ -10,44 +10,10 @@ function extractDetailsCategory(raw: Record<string, unknown>): string | null {
 }
 
 function mapTellerCategoryLabel(label: string): string | null {
-  const s = label.trim().toLowerCase()
-  if (!s) return null
-  const exact: Readonly<Record<string, string>> = {
-    dining: 'food',
-    restaurant: 'food',
-    'fast food': 'food',
-    fast_food: 'food',
-    coffee: 'food',
-    food: 'food',
-    groceries: 'groceries',
-    grocery: 'groceries',
-    shopping: 'groceries',
-    transportation: 'transport',
-    transit: 'transport',
-    auto: 'transport',
-    gas: 'transport',
-    entertainment: 'entertainment',
-    utilities: 'utilities',
-    bills: 'utilities',
-    housing: 'housing',
-    rent: 'housing',
-    mortgage: 'housing',
-    income: 'other',
-    general: 'other',
-    fees: 'other',
-    medical: 'other',
-    travel: 'transport',
-  }
-  if (exact[s] !== undefined) return exact[s]
-  const pairs: readonly (readonly [string, string])[] = [
-    ['grocery', 'groceries'],
-    ['food and drink', 'food'],
-    ['transportation', 'transport'],
-  ]
-  for (const [needle, id] of pairs) {
-    if (s.includes(needle)) return id
-  }
-  return null
+  // We now treat Teller categories as first-class app categories.
+  // Keep the raw label (trimmed) as the category label; the caller will upsert it into `categories`.
+  const s = label.trim()
+  return s ? s : null
 }
 
 function categorizeFromDescription(description: string): string {
@@ -128,8 +94,8 @@ export function parseTellerTransaction(
   const detailsCategory = extractDetailsCategory(r)
   const category =
     detailsCategory !== null
-      ? (mapTellerCategoryLabel(detailsCategory) ?? 'other')
-      : categorizeFromDescription(description)
+      ? (mapTellerCategoryLabel(detailsCategory) ?? 'Other')
+      : 'Other'
   const pending = r.status === 'pending' || r.pending === true
   return {
     id,
