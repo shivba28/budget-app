@@ -212,9 +212,16 @@ export function Settings(): ReactElement {
     const label = newCategoryLabel.trim()
     if (!label) return
     void (async () => {
-      const id = await createCategoryOnServer({ label, color: newCategoryColor })
-      if (!id) {
-        setCustomCategoryError('Could not create category. Try again.')
+      const result = await createCategoryOnServer({
+        label,
+        color: newCategoryColor,
+      })
+      if (!result.ok) {
+        setCustomCategoryError(
+          result.duplicate
+            ? 'A category with this name already exists (including bank categories).'
+            : 'Could not create category. Try again.',
+        )
         return
       }
       setNewCategoryLabel('')
@@ -527,13 +534,21 @@ export function Settings(): ReactElement {
                   Light or dark appearance for the app.
                 </p>
               </div>
-              <Switch
-                checked={themeDark}
-                onCheckedChange={(on) =>
-                  applyThemePreference(on ? 'dark' : 'light')
-                }
-                aria-label="Use dark theme"
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className="text-sm font-medium text-foreground tabular-nums"
+                  aria-live="polite"
+                >
+                  {themeDark ? 'Dark' : 'Light'}
+                </span>
+                <Switch
+                  checked={themeDark}
+                  onCheckedChange={(on) =>
+                    applyThemePreference(on ? 'dark' : 'light')
+                  }
+                  aria-label={themeDark ? 'Switch to light theme' : 'Switch to dark theme'}
+                />
+              </div>
             </CardContent>
           </Card>
 

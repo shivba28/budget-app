@@ -1,3 +1,4 @@
+import axios from 'axios'
 import type { Account, Transaction, Trip } from '@/lib/domain'
 import type { MonthlyBudgetsStoredV1 } from '@/lib/storage'
 import * as storage from '@/lib/storage'
@@ -40,6 +41,20 @@ function mapServerTransaction(row: Record<string, unknown>): Transaction | null 
   if (tripRaw === null) tripId = null
   else if (typeof tripRaw === 'number' && Number.isFinite(tripRaw)) tripId = tripRaw
 
+  const myShareRaw = row.myShare !== undefined ? row.myShare : row.my_share
+  let myShare: number | null | undefined
+  if (myShareRaw === null) {
+    myShare = null
+  } else if (typeof myShareRaw === 'number' && Number.isFinite(myShareRaw)) {
+    myShare = myShareRaw
+  } else if (typeof myShareRaw === 'string') {
+    const n = Number(myShareRaw)
+    if (Number.isFinite(n)) myShare = n
+  }
+
+  const pr = row.pending
+  const pending = pr === true || pr === 'true'
+
   const base: Transaction = {
     id,
     accountId,
@@ -47,6 +62,8 @@ function mapServerTransaction(row: Record<string, unknown>): Transaction | null 
     date: date.slice(0, 10),
     categoryId,
     description,
+    ...(myShare !== undefined ? { myShare } : {}),
+    ...(pending ? { pending: true as const } : {}),
   }
   if (effectiveDate !== undefined) {
     ;(base as Transaction & { effectiveDate?: string | null }).effectiveDate =
@@ -179,19 +196,27 @@ export async function fetchCategoriesFromServer(): Promise<ServerCategory[] | nu
   }
 }
 
+export type CreateCategoryOnServerResult =
+  | { ok: true; id: string }
+  | { ok: false; duplicate: boolean }
+
 export async function createCategoryOnServer(input: {
   label: string
   color: string
-}): Promise<string | null> {
+}): Promise<CreateCategoryOnServerResult> {
   try {
     const { data } = await userDataApi.post<{ id?: unknown }>('/categories', {
       label: input.label,
       color: input.color,
     })
     const id = typeof data?.id === 'string' ? data.id : null
-    return id
-  } catch {
-    return null
+    if (!id) return { ok: false, duplicate: false }
+    return { ok: true, id }
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 409) {
+      return { ok: false, duplicate: true }
+    }
+    return { ok: false, duplicate: false }
   }
 }
 
@@ -317,6 +342,7 @@ export async function allocateTransactionOnServer(
   body:
     | { type: 'date'; effective_date: string }
     | { type: 'trip'; trip_id: number }
+    | { type: 'my_share'; my_share: number | null }
     | { type: 'none' },
 ): Promise<boolean> {
   try {

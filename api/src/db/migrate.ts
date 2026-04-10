@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   date DATE NOT NULL,
   effective_date DATE,
   trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+  my_share NUMERIC,
   amount NUMERIC,
   description TEXT,
   category TEXT,
@@ -121,6 +122,9 @@ ALTER TABLE accounts
 
 ALTER TABLE accounts
   ADD COLUMN IF NOT EXISTS depository_amounts_inverted BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS my_share NUMERIC;
 `
 
 let migrated = false

@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { listAllCategories } from '@/lib/categoriesList'
+import { listCategoriesForTransactionFilters } from '@/lib/categoryCanonical'
 import { ErrorRetry } from '../components/ErrorRetry'
 import {
   filterTransactionsByVisibleAccounts,
@@ -14,7 +14,8 @@ import {
   isBankTransactionSyncInFlight,
   loadTransactionsFromCacheOrFetch,
   refreshTransactionsFromBackend,
-  resolveDisplayCategory,
+  resolveCanonicalDisplayCategory,
+  resolveMyShare,
   tripsMapFromList,
   type Transaction,
 } from '../lib/api'
@@ -323,10 +324,16 @@ export function Transactions(): ReactElement {
     return (storage.getAccounts() ?? []).length > 0
   }, [accountsTick])
 
+  /** Pending charges are kept in cache but omitted from this page until they post. */
+  const rowsForTable = useMemo(
+    () => rows.filter((tx) => tx.pending !== true),
+    [rows],
+  )
+
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const accounts = storage.getAccounts() ?? []
-    const visible = filterTransactionsByVisibleAccounts(rows)
+    const visible = filterTransactionsByVisibleAccounts(rowsForTable)
     return visible.filter((tx) => {
       if (
         !transactionMatchesDatePreset(
@@ -347,14 +354,14 @@ export function Transactions(): ReactElement {
         const inAcct = acctLabel.includes(q)
         if (!inDesc && !inAcct) return false
       }
-      const effective = resolveDisplayCategory(tx, categoryOverrides)
+      const effective = resolveCanonicalDisplayCategory(tx, categoryOverrides)
       if (categoryFilter !== 'all' && effective !== categoryFilter) return false
       if (directionFilter === 'debit' && tx.amount <= 0) return false
       if (directionFilter === 'credit' && tx.amount >= 0) return false
       return true
     })
   }, [
-    rows,
+    rowsForTable,
     searchQuery,
     categoryFilter,
     directionFilter,
@@ -631,7 +638,7 @@ export function Transactions(): ReactElement {
                   onChange={(e) => setCategoryFilter(e.target.value)}
                 >
                   <option value="all">All categories</option>
-                  {listAllCategories().map((c) => (
+                  {listCategoriesForTransactionFilters().map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.label}
                     </option>
@@ -689,7 +696,7 @@ export function Transactions(): ReactElement {
           </div>
         ) : null}
 
-        {!filtersActive && rows.length === 0 && !bootstrapLoading ? (
+        {!filtersActive && rowsForTable.length === 0 && !bootstrapLoading ? (
           <Card className="border-dashed shadow-none" role="status">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
               {hasLinkedBanks ? (
@@ -763,7 +770,7 @@ export function Transactions(): ReactElement {
 
                 const tx = row.tx
                 const rowKey = txRowKey(tx)
-                const effectiveId = resolveDisplayCategory(
+                const effectiveId = resolveCanonicalDisplayCategory(
                   tx,
                   categoryOverrides,
                 )
@@ -812,6 +819,11 @@ export function Transactions(): ReactElement {
                             >
                               {getCategoryLabel(effectiveId)}
                             </span>
+                            {tx.myShare != null ? (
+                              <span className="shrink-0">
+                                · My share {formatCurrencyAmount(resolveMyShare(tx))}
+                              </span>
+                            ) : null}
                           </div>
                           <span
                             className={cn(

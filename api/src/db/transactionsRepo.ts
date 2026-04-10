@@ -7,6 +7,7 @@ export type DbTransactionRow = {
   date: string
   effective_date: string | null
   trip_id: number | null
+  my_share: string | null
   amount: string
   description: string | null
   category: string | null
@@ -79,7 +80,7 @@ export async function getAllocationsForIds(
 export async function listTransactionsForUser(userId: string): Promise<DbTransactionRow[]> {
   const { rows } = await query<DbTransactionRow>(
     `SELECT user_id, id, account_id, date::text AS date, effective_date::text AS effective_date,
-            trip_id, amount::text AS amount, description, category, detail_category, pending
+            trip_id, my_share::text AS my_share, amount::text AS amount, description, category, detail_category, pending
      FROM transactions WHERE user_id = $1 ORDER BY date DESC, id DESC`,
     [userId],
   )
@@ -97,16 +98,72 @@ export async function transactionBelongsToUser(
   return rows.length > 0
 }
 
+/**
+ * Remove pending rows that are superseded by a posted duplicate (same account, amount,
+ * description, dates within a few days). Teller often issues a new id when a charge
+ * posts, leaving the old pending row in our DB until sync — this cleans that up.
+ */
+/**
+ * Remove rows for this account whose posting `date` falls in [minDate, maxDate] but whose
+ * id was not returned in the latest Teller fetch. Only call when the fetch covered the full
+ * tail to Teller’s end (no incremental stop, no page-cap truncation).
+ */
+export async function deleteTransactionsNotInFetchForAccountDateRange(params: {
+  userId: string
+  accountId: string
+  minDate: string
+  maxDate: string
+  keepIds: readonly string[]
+}): Promise<number> {
+  if (params.keepIds.length === 0) return 0
+  const { rowCount } = await query(
+    `DELETE FROM transactions
+     WHERE user_id = $1
+       AND account_id = $2
+       AND date >= $3::date
+       AND date <= $4::date
+       AND NOT (id = ANY($5::text[]))`,
+    [params.userId, params.accountId, params.minDate, params.maxDate, params.keepIds],
+  )
+  return rowCount ?? 0
+}
+
+export async function deleteSupersededPendingTransactionsForAccount(params: {
+  userId: string
+  accountId: string
+}): Promise<number> {
+  const { rowCount } = await query(
+    `DELETE FROM transactions AS t_del
+     WHERE t_del.user_id = $1
+       AND t_del.account_id = $2
+       AND t_del.pending = true
+       AND EXISTS (
+         SELECT 1 FROM transactions AS t_keep
+         WHERE t_keep.user_id = t_del.user_id
+           AND t_keep.account_id = t_del.account_id
+           AND t_keep.pending = false
+           AND t_keep.amount = t_del.amount
+           AND lower(trim(both from coalesce(t_keep.description, '')))
+               = lower(trim(both from coalesce(t_del.description, '')))
+           AND abs((t_keep.date::date - t_del.date::date)) <= 5
+           AND t_keep.id <> t_del.id
+       )`,
+    [params.userId, params.accountId],
+  )
+  return rowCount ?? 0
+}
+
 export async function allocateTransaction(params: {
   userId: string
   transactionId: string
-  mode: 'date' | 'trip' | 'none'
+  mode: 'date' | 'trip' | 'none' | 'my_share'
   effectiveDate: string | null
   tripId: number | null
+  myShare: number | null
 }): Promise<void> {
   if (params.mode === 'none') {
     await query(
-      `UPDATE transactions SET effective_date = NULL, trip_id = NULL
+      `UPDATE transactions SET effective_date = NULL, trip_id = NULL, my_share = NULL
        WHERE user_id = $1 AND id = $2`,
       [params.userId, params.transactionId],
     )
@@ -117,6 +174,14 @@ export async function allocateTransaction(params: {
       `UPDATE transactions SET effective_date = $3::date, trip_id = NULL
        WHERE user_id = $1 AND id = $2`,
       [params.userId, params.transactionId, params.effectiveDate],
+    )
+    return
+  }
+  if (params.mode === 'my_share') {
+    await query(
+      `UPDATE transactions SET my_share = $3
+       WHERE user_id = $1 AND id = $2`,
+      [params.userId, params.transactionId, params.myShare],
     )
     return
   }

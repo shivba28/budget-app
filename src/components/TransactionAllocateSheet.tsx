@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Calendar, Plane, Tag } from 'lucide-react'
+import { Calendar, DollarSign, Plane, Tag } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { Transaction, Trip } from '@/lib/domain'
 import * as storage from '@/lib/storage'
@@ -14,9 +14,10 @@ import {
   getCategoryLabel,
   getCategoryPillColor,
   persistCategoryOverride,
-  resolveDisplayCategory,
+  resolveCanonicalDisplayCategory,
+  resolveMyShare,
 } from '@/lib/api'
-import { listAllCategories } from '@/lib/categoriesList'
+import { listCategoriesForTransactionFilters } from '@/lib/categoryCanonical'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -24,12 +25,12 @@ import { cn } from '@/lib/utils'
 type Props = {
   readonly tx: Transaction | null
   readonly open: boolean
-  readonly initialPanel?: 'menu' | 'defer' | 'trip' | 'category'
+  readonly initialPanel?: 'menu' | 'defer' | 'trip' | 'category' | 'share'
   readonly onClose: () => void
   readonly onApplied: () => void
 }
 
-type Panel = 'menu' | 'defer' | 'trip' | 'newTrip' | 'category'
+type Panel = 'menu' | 'defer' | 'trip' | 'newTrip' | 'category' | 'share'
 
 export function TransactionAllocateSheet({
   tx,
@@ -47,6 +48,7 @@ export function TransactionAllocateSheet({
   const [newStart, setNewStart] = useState('')
   const [newEnd, setNewEnd] = useState('')
   const [newBudget, setNewBudget] = useState('')
+  const [shareInput, setShareInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -75,9 +77,14 @@ export function TransactionAllocateSheet({
     setNewStart(tx.date.slice(0, 10))
     setNewEnd('')
     setNewBudget('')
+    setShareInput(tx.myShare != null ? String(tx.myShare) : '')
   }, [open, tx, initialPanel])
 
   const canSubmitDefer = useMemo(() => deferDate.length >= 10, [deferDate])
+  const validShare = useMemo(() => {
+    const n = parseFloat(shareInput.replace(/[$,]/g, ''))
+    return Number.isFinite(n) && n >= 0
+  }, [shareInput])
 
   if (!rendered || !tx) return null
 
@@ -91,7 +98,7 @@ export function TransactionAllocateSheet({
   const deferredLabel = isDeferred ? row.effectiveDate!.slice(0, 10) : null
   const tripName =
     row.tripId != null ? trips.find((t) => t.id === row.tripId)?.name ?? null : null
-  const effectiveCategoryId = resolveDisplayCategory(
+  const effectiveCategoryId = resolveCanonicalDisplayCategory(
     row,
     storage.getCategoryOverrides(),
   )
@@ -127,6 +134,29 @@ export function TransactionAllocateSheet({
       onClose()
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function applyShare(override?: null): Promise<void> {
+    if (saving) return
+    if (override !== null && !validShare) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const value =
+        override === null
+          ? null
+          : Math.round(parseFloat(shareInput.replace(/[$,]/g, '')) * 100) / 100
+      const { setTransactionMyShare } = await import('@/lib/transactionAllocation')
+      const ok = await setTransactionMyShare(row.id, value)
+      if (!ok) {
+        setSaveError('Could not save share. Try again.')
+        return
+      }
+      onApplied()
+      onClose()
     } finally {
       setSaving(false)
     }
@@ -273,6 +303,11 @@ export function TransactionAllocateSheet({
               >
                 {getCategoryLabel(effectiveCategoryId)}
               </span>
+              {row.myShare != null ? (
+                <span className="shrink-0">
+                  · My share {formatCurrencyAmount(displayAmount(resolveMyShare(row)))}
+                </span>
+              ) : null}
             </div>
             <span className={amountClass(row.amount)}>
               {formatCurrencyAmount(displayAmount(row.amount))}
@@ -317,6 +352,16 @@ export function TransactionAllocateSheet({
               variant="secondary"
               className="w-full justify-start"
               disabled={saving}
+              onClick={() => setPanel('share')}
+            >
+              <DollarSign className="mr-2 size-4 shrink-0" aria-hidden />
+              {row.myShare != null ? 'My share (override)' : 'Set my share'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full justify-start"
+              disabled={saving}
               onClick={() => setPanel('category' as Panel)}
             >
               <Tag className="mr-2 size-4 shrink-0" aria-hidden />
@@ -324,7 +369,8 @@ export function TransactionAllocateSheet({
             </Button>
             {(row.tripId != null ||
               (typeof row.effectiveDate === 'string' &&
-                row.effectiveDate.length >= 7)) && (
+                row.effectiveDate.length >= 7) ||
+              row.myShare != null) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -335,6 +381,52 @@ export function TransactionAllocateSheet({
                 Clear allocation
               </Button>
             )}
+          </div>
+        ) : null}
+
+        {panel === 'share' ? (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ml-2 mb-1"
+              disabled={saving}
+              onClick={() => setPanel('menu')}
+            >
+              ← Back
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Full amount: {formatCurrencyAmount(displayAmount(row.amount))}
+            </p>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-muted-foreground">My share</span>
+              <Input
+                inputMode="decimal"
+                value={shareInput}
+                onChange={(e) => setShareInput(e.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={!validShare || saving}
+              onClick={() => void applyShare()}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+            {row.myShare != null ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-muted-foreground"
+                disabled={saving}
+                onClick={() => void applyShare(null)}
+              >
+                Clear (use full amount)
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -351,7 +443,7 @@ export function TransactionAllocateSheet({
               ← Back
             </Button>
             <ul className="max-h-64 space-y-1 overflow-y-auto">
-              {listAllCategories().map((c) => (
+              {listCategoriesForTransactionFilters().map((c) => (
                 <li key={c.id}>
                   <button
                     type="button"

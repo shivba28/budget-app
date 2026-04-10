@@ -139,9 +139,9 @@ export async function migrateUserPayload(
         oldTrip != null && tripIdMap.has(oldTrip) ? tripIdMap.get(oldTrip)! : null
       const res = await client.query(
         `INSERT INTO transactions (
-           user_id, id, account_id, date, effective_date, trip_id, amount, description, category, detail_category, pending
+           user_id, id, account_id, date, effective_date, trip_id, my_share, amount, description, category, detail_category, pending
          )
-         VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (user_id, id) DO NOTHING`,
         [
           userId,
@@ -152,6 +152,7 @@ export async function migrateUserPayload(
             ? tx.effectiveDate.slice(0, 10)
             : null,
           newTrip,
+          (tx as any).myShare ?? null,
           tx.amount,
           tx.description ?? '',
           cat,

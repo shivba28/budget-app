@@ -3,6 +3,8 @@
  */
 import { CATEGORIES } from '../constants/categories'
 import { MONTHLY_BUDGET_DEFAULTS_BY_CATEGORY } from '../constants/monthlyBudgetDefaults'
+import { canonicalCategoryIdForSpend, resolveCategoryLabel } from '../lib/categoryCanonical'
+import { resolveMyShare } from '../lib/api'
 import { isKnownCategoryId } from '../lib/categories'
 import type { Transaction, Trip } from '../lib/domain'
 import {
@@ -11,10 +13,6 @@ import {
 } from '../lib/effectiveMonth'
 import * as storage from '../lib/storage'
 
-export function categoryLabelForId(id: string): string {
-  return CATEGORIES.find((c) => c.id === id)?.label ?? id
-}
-
 function effCategory(
   tx: Transaction,
   overrides: Readonly<Record<string, string>>,
@@ -22,6 +20,13 @@ function effCategory(
   const o = overrides[tx.id]
   if (o !== undefined && isKnownCategoryId(o)) return o
   return tx.categoryId
+}
+
+function spendCategoryKey(
+  tx: Transaction,
+  overrides: Readonly<Record<string, string>>,
+): string {
+  return canonicalCategoryIdForSpend(effCategory(tx, overrides))
 }
 
 function monthKeyFromParts(y: number, m: number): string {
@@ -253,21 +258,22 @@ export function analyzeTransactions(
     if (!mk) continue
     const r = roll(mk)
     r.allTxs.push(tx)
-    if (tx.amount > 0) {
-      r.expenses += tx.amount
+    const share = resolveMyShare(tx)
+    if (share > 0) {
+      r.expenses += share
       r.spendTxs.push(tx)
       allSpendTxs.push(tx)
-      const cat = effCategory(tx, categoryOverrides)
-      r.spendByCat.set(cat, (r.spendByCat.get(cat) ?? 0) + tx.amount)
+      const cat = spendCategoryKey(tx, categoryOverrides)
+      r.spendByCat.set(cat, (r.spendByCat.get(cat) ?? 0) + share)
       const mer = normalizeMerchant(tx.description)
-      r.spendByMerchant.set(mer, (r.spendByMerchant.get(mer) ?? 0) + tx.amount)
+      r.spendByMerchant.set(mer, (r.spendByMerchant.get(mer) ?? 0) + share)
       if (!r.merchantSampleDesc.has(mer)) {
         const raw = tx.description.trim()
         r.merchantSampleDesc.set(mer, raw.length > 0 ? raw : mer)
       }
       const list = spendAmountsByCategory.get(cat)
-      if (list) list.push(tx.amount)
-      else spendAmountsByCategory.set(cat, [tx.amount])
+      if (list) list.push(share)
+      else spendAmountsByCategory.set(cat, [share])
     } else if (tx.amount < 0) {
       r.income += Math.abs(tx.amount)
     }
@@ -282,7 +288,7 @@ export function analyzeTransactions(
     ? [...focusRoll.spendByCat.entries()]
         .map(([categoryId, totalSpend]) => ({
           categoryId,
-          label: categoryLabelForId(categoryId),
+          label: resolveCategoryLabel(categoryId),
           totalSpend,
         }))
         .sort((a, b) => b.totalSpend - a.totalSpend)
@@ -315,7 +321,7 @@ export function analyzeTransactions(
     else if (cur > 0 && pr === 0) percentChange = null
     categoryMoM.push({
       categoryId,
-      label: categoryLabelForId(categoryId),
+      label: resolveCategoryLabel(categoryId),
       currentSpend: cur,
       previousSpend: pr,
       absoluteChange,
@@ -329,14 +335,14 @@ export function analyzeTransactions(
 
   const biggestThree: BiggestTransaction[] = focusRoll
     ? [...focusRoll.spendTxs]
-        .sort((a, b) => b.amount - a.amount)
+        .sort((a, b) => resolveMyShare(b) - resolveMyShare(a))
         .slice(0, 3)
         .map((t) => ({
           id: t.id,
           date: t.date,
           description: t.description,
-          amount: t.amount,
-          categoryId: effCategory(t, categoryOverrides),
+          amount: resolveMyShare(t),
+          categoryId: spendCategoryKey(t, categoryOverrides),
         }))
     : []
 
@@ -383,14 +389,14 @@ export function analyzeTransactions(
     if (sd === 0) continue
     const threshold = m + 2 * sd
     for (const tx of transactions) {
-      if (tx.amount <= 0) continue
-      if (effCategory(tx, categoryOverrides) !== categoryId) continue
-      if (tx.amount > threshold) {
+      if (resolveMyShare(tx) <= 0) continue
+      if (spendCategoryKey(tx, categoryOverrides) !== categoryId) continue
+      if (resolveMyShare(tx) > threshold) {
         anomalies.push({
           transaction: tx,
           categoryId,
-          categoryLabel: categoryLabelForId(categoryId),
-          zScore: (tx.amount - m) / sd,
+          categoryLabel: resolveCategoryLabel(categoryId),
+          zScore: (resolveMyShare(tx) - m) / sd,
           categoryAverage: m,
           categoryStdDev: sd,
         })

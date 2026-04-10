@@ -3,7 +3,8 @@ import {
   resolveTransactionBudgetMonthKey,
   tripsMapFromList,
 } from '@/lib/effectiveMonth'
-import { getCategoryLabel, resolveDisplayCategory } from '@/lib/api'
+import { canonicalCategoryIdForSpend } from '@/lib/categoryCanonical'
+import { getCategoryLabel, resolveDisplayCategory, resolveMyShare } from '@/lib/api'
 
 function monthKeyAfter(
   year: number,
@@ -43,7 +44,9 @@ export function upcomingCommittedSpendByMonth(
   for (const tx of txs) {
     const bmk = resolveTransactionBudgetMonthKey(tx, map)
     if (!totals.has(bmk)) continue
-    if (tx.amount > 0) totals.set(bmk, (totals.get(bmk) ?? 0) + tx.amount)
+    if (resolveMyShare(tx) > 0) {
+      totals.set(bmk, (totals.get(bmk) ?? 0) + resolveMyShare(tx))
+    }
   }
 
   return keys.map((monthKey) => ({
@@ -69,7 +72,9 @@ export function monthTimelineCommittedSpend(
   for (const tx of txs) {
     const bmk = resolveTransactionBudgetMonthKey(tx, map)
     if (!totals.has(bmk)) continue
-    if (tx.amount > 0) totals.set(bmk, (totals.get(bmk) ?? 0) + tx.amount)
+    if (resolveMyShare(tx) > 0) {
+      totals.set(bmk, (totals.get(bmk) ?? 0) + resolveMyShare(tx))
+    }
   }
 
   return keys.map((monthKey) => ({
@@ -99,7 +104,7 @@ export function buildTripSummaries(
     const cur = byTrip.get(tid)
     if (!cur) continue
     cur.count += 1
-    if (tx.amount > 0) cur.total += tx.amount
+    if (resolveMyShare(tx) > 0) cur.total += resolveMyShare(tx)
   }
 
   const refMk = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
@@ -123,9 +128,11 @@ export function categoryBreakdownForTrip(
   const map = new Map<string, number>()
   for (const tx of txs) {
     if (tx.tripId !== tripId) continue
-    if (tx.amount <= 0) continue
-    const cid = resolveDisplayCategory(tx, categoryOverrides)
-    map.set(cid, (map.get(cid) ?? 0) + tx.amount)
+    if (resolveMyShare(tx) <= 0) continue
+    const cid = canonicalCategoryIdForSpend(
+      resolveDisplayCategory(tx, categoryOverrides),
+    )
+    map.set(cid, (map.get(cid) ?? 0) + resolveMyShare(tx))
   }
   return [...map.entries()]
     .map(([categoryId, total]) => ({

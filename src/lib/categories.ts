@@ -1,4 +1,4 @@
-import { listAllCategories } from '@/lib/categoriesList'
+import { mergedCategoryDefinitions } from '@/lib/categoryCanonical'
 
 type Rule = { readonly pattern: RegExp; readonly categoryId: string }
 
@@ -44,5 +44,5 @@ export function categorize(description: string): string {
 }
 
 export function isKnownCategoryId(id: string): boolean {
-  return listAllCategories().some((c) => c.id === id)
+  return mergedCategoryDefinitions().some((c) => c.id === id)
 }

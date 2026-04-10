@@ -18,12 +18,16 @@ export interface Transaction {
   readonly description: string
   /** Raw Teller `details.category` when present (used for Insights grouping). */
   readonly detailCategory?: string
+  /** When set, use this as the user’s personal cost instead of the full amount. */
+  readonly myShare?: number | null
   /**
    * When set (and no trip), budget/insights month uses this date’s calendar month instead of `date`.
    */
   readonly effectiveDate?: string | null
   /** When set, trip rules apply; `effectiveDate` is ignored. */
   readonly tripId?: number | null
+  /** When true, row is not shown on the Transactions page (still stored for when it posts). */
+  readonly pending?: boolean
 }
 
 export interface Trip {

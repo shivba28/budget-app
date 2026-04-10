@@ -9,8 +9,11 @@ import {
 } from './effectiveMonth'
 import * as storage from './storage'
 import { fetchTransactionsFromServer } from './serverData'
-import { listAllCategories } from '@/lib/categoriesList'
-
+import {
+  canonicalCategoryIdForSpend,
+  categoryLabelNormalizedKeyFromLabel,
+  resolveCategoryLabel,
+} from '@/lib/categoryCanonical'
 export type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
 
 let syncInFlight: Promise<Transaction[]> | null = null
@@ -286,6 +289,20 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
   if (trRaw === null) tripId = null
   else if (typeof trRaw === 'number' && Number.isFinite(trRaw)) tripId = trRaw
 
+  const shareRaw = r.my_share !== undefined ? r.my_share : r.myShare
+  let myShare: number | null | undefined
+  if (shareRaw === null) {
+    myShare = null
+  } else if (typeof shareRaw === 'number' && Number.isFinite(shareRaw)) {
+    myShare = shareRaw
+  } else if (typeof shareRaw === 'string') {
+    const n = Number(shareRaw)
+    if (Number.isFinite(n)) myShare = n
+  }
+
+  const pending =
+    r.status === 'pending' || r.pending === true || r.pending === 'true'
+
   const base: Transaction = {
     id,
     accountId,
@@ -293,6 +310,8 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
     date,
     categoryId,
     description,
+    ...(myShare !== undefined ? { myShare } : {}),
+    ...(pending ? { pending: true as const } : {}),
   }
   if (effectiveDate !== undefined) {
     ;(base as Transaction & { effectiveDate?: string | null }).effectiveDate =
@@ -572,6 +591,11 @@ export interface MonthSummaryResult {
   readonly hasSpendInMonth: boolean
 }
 
+export function resolveMyShare(tx: Transaction): number {
+  if (tx.myShare != null && Number.isFinite(tx.myShare)) return tx.myShare
+  return tx.amount
+}
+
 /** Calendar month filter for budgets & Insights — uses resolved budget month (trip / effective date). */
 export function filterTransactionsForCalendarMonth(
   transactions: readonly Transaction[],
@@ -624,23 +648,23 @@ export function computeMonthSummary(
   )
   const hasAnyTransactionsInMonth = monthTxs.length > 0
 
-  const spendTxs = monthTxs.filter((t) => t.amount > 0)
-  const totalSpend = spendTxs.reduce((sum, t) => sum + t.amount, 0)
+  const spendTxs = monthTxs.filter((t) => resolveMyShare(t) > 0)
+  const totalSpend = spendTxs.reduce((sum, t) => sum + resolveMyShare(t), 0)
   const hasSpendInMonth = totalSpend > 0
 
   type Bucket = { label: string; colorId: string; total: number }
   const buckets = new Map<string, Bucket>()
 
   for (const tx of spendTxs) {
-    const eff = resolveDisplayCategory(tx, overrides)
+    const eff = canonicalCategoryIdForSpend(resolveDisplayCategory(tx, overrides))
     const key = `c:${eff}`
-    const label = getCategoryLabel(eff)
+    const label = resolveCategoryLabel(eff)
     const colorId = eff
     const prev = buckets.get(key)
     if (prev) {
-      prev.total += tx.amount
+      prev.total += resolveMyShare(tx)
     } else {
-      buckets.set(key, { label, colorId, total: tx.amount })
+      buckets.set(key, { label, colorId, total: resolveMyShare(tx) })
     }
   }
 
@@ -689,14 +713,22 @@ export function getTellerApplicationId(): string {
 }
 
 export function getCategoryLabel(categoryId: string): string {
-  const found = listAllCategories().find((c) => c.id === categoryId)
-  return found?.label ?? categoryId
+  return resolveCategoryLabel(categoryId)
 }
 
 export function getCategoryPillColor(categoryId: string): string {
-  const server = storage.getCategories()?.find((c) => c.id === categoryId)
-  if (server) return server.color
-  const key = categoryId as keyof typeof CATEGORY_COLORS
+  const list = storage.getCategories()
+  const labelKey = categoryLabelNormalizedKeyFromLabel(
+    resolveCategoryLabel(categoryId),
+  )
+  if (list) {
+    const match = list.find(
+      (c) => categoryLabelNormalizedKeyFromLabel(c.label) === labelKey,
+    )
+    if (match) return match.color
+  }
+  const canon = canonicalCategoryIdForSpend(categoryId)
+  const key = canon as keyof typeof CATEGORY_COLORS
   return CATEGORY_COLORS[key] ?? '#94a3b8'
 }
 
@@ -712,6 +744,14 @@ export function resolveDisplayCategory(
   const o = overrides[tx.id]
   if (o !== undefined && isKnownCategoryId(o)) return o
   return tx.categoryId
+}
+
+/** Same as {@link resolveDisplayCategory} but collapses Teller vs built-in ids that share one label. */
+export function resolveCanonicalDisplayCategory(
+  tx: Transaction,
+  overrides: Readonly<Record<string, string>>,
+): string {
+  return canonicalCategoryIdForSpend(resolveDisplayCategory(tx, overrides))
 }
 
 export function persistCategoryOverride(

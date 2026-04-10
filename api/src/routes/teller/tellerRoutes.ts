@@ -18,6 +18,8 @@ import {
   upsertAccount,
 } from '../../db/accountsRepo.js'
 import {
+  deleteSupersededPendingTransactionsForAccount,
+  deleteTransactionsNotInFetchForAccountDateRange,
   getAllocationsForIds,
   upsertTransactionFromTeller,
 } from '../../db/transactionsRepo.js'
@@ -229,49 +231,57 @@ export function applyTellerRoutes(app: Express): void {
           : null
 
       // Pull newest-first, then paginate older pages until we hit stopAtId (quick sync),
-      // or until we exhaust pages (full sync).
+      // or Teller returns a short page. Up to two waves of pages if the first hits the cap
+      // (same as “ping twice” for deep history).
       const PAGE_SIZE = 200
-      const MAX_PAGES = 12
+      const MAX_PAGES_PER_WAVE = 30
+      const MAX_WAVES = 2
       const merged: unknown[] = []
       let fromId: string | null = null
       let newestId: string | null = null
       let hitStop = false
+      /** True only if the last wave ended on a full page at the per-wave cap (more may exist upstream). */
+      let truncatedByPageCap = false
 
-      for (let page = 0; page < MAX_PAGES; page++) {
-        const pageData = await getTransactionsForAccount(
-          accountId,
-          enrollParam,
-          tokenMap,
-          { count: PAGE_SIZE, from_id: fromId },
-        )
-        const list = unwrapTransactionList(pageData)
-        if (list.length === 0) break
+      for (let wave = 0; wave < MAX_WAVES && !hitStop; wave++) {
+        let waveTruncated = false
+        for (let page = 0; page < MAX_PAGES_PER_WAVE && !hitStop; page++) {
+          const pageData = await getTransactionsForAccount(
+            accountId,
+            enrollParam,
+            tokenMap,
+            { count: PAGE_SIZE, from_id: fromId },
+          )
+          const list = unwrapTransactionList(pageData)
+          if (list.length === 0) break
 
-        for (const raw of list) {
-          if (!raw || typeof raw !== 'object') continue
-          const r = raw as Record<string, unknown>
-          const id = typeof r.id === 'string' ? r.id : null
-          if (id && newestId === null) newestId = id
-          if (stopAtId && id === stopAtId) {
-            hitStop = true
-            break
+          for (const raw of list) {
+            if (!raw || typeof raw !== 'object') continue
+            const r = raw as Record<string, unknown>
+            const id = typeof r.id === 'string' ? r.id : null
+            if (id && newestId === null) newestId = id
+            if (stopAtId && id === stopAtId) {
+              hitStop = true
+              break
+            }
+            merged.push(raw)
           }
-          merged.push(raw)
+
+          if (hitStop) break
+
+          const last = list[list.length - 1]
+          const lastId =
+            last && typeof last === 'object' && typeof (last as any).id === 'string'
+              ? ((last as any).id as string)
+              : null
+          if (!lastId) break
+          fromId = lastId
+
+          if (list.length < PAGE_SIZE) break
+          if (page === MAX_PAGES_PER_WAVE - 1) waveTruncated = true
         }
-
-        if (hitStop) break
-
-        // Pagination cursor: last element's id (older page anchor)
-        const last = list[list.length - 1]
-        const lastId =
-          last && typeof last === 'object' && typeof (last as any).id === 'string'
-            ? ((last as any).id as string)
-            : null
-        if (!lastId) break
-        fromId = lastId
-
-        // If we got fewer than page size, we're done.
-        if (list.length < PAGE_SIZE) break
+        truncatedByPageCap = waveTruncated
+        if (!waveTruncated) break
       }
 
       const data = { transactions: merged }
@@ -323,6 +333,27 @@ export function applyTellerRoutes(app: Express): void {
             }
           }
         }
+
+        // Full tail fetch only: drop DB rows in the calendar range of this fetch whose ids
+        // Teller did not return (e.g. removed pending). Skip on incremental sync or if capped.
+        const canReconcileOrphans =
+          stopAtId === null && !truncatedByPageCap && parsed.length > 0
+        if (canReconcileOrphans) {
+          let minDate = parsed[0]!.date
+          let maxDate = parsed[0]!.date
+          for (const p of parsed) {
+            if (p.date < minDate) minDate = p.date
+            if (p.date > maxDate) maxDate = p.date
+          }
+          await deleteTransactionsNotInFetchForAccountDateRange({
+            userId,
+            accountId,
+            minDate,
+            maxDate,
+            keepIds: parsed.map((row) => row.id),
+          })
+        }
+
         if (newestId) {
           await setLastSeenTxIdForAccount({
             userId,
@@ -343,6 +374,13 @@ export function applyTellerRoutes(app: Express): void {
             r.trip_id = a.tripId
           }
         }
+      }
+
+      if (shouldPersist && userId) {
+        await deleteSupersededPendingTransactionsForAccount({
+          userId,
+          accountId,
+        })
       }
 
       res.json(data)

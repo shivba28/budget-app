@@ -74,6 +74,7 @@ export function applyUserRoutes(app: Express): void {
         detailCategory: row.detail_category ?? undefined,
         effectiveDate: row.effective_date,
         tripId: row.trip_id,
+        myShare: row.my_share === null ? null : Number(row.my_share),
         pending: row.pending === true,
       }))
       res.json({ transactions })
@@ -113,6 +114,13 @@ export function applyUserRoutes(app: Express): void {
       res.status(400).json({ error: 'label is required' })
       return
     }
+    const existing = await listCategoriesForUser(userId)
+    const norm = label.toLowerCase()
+    if (existing.some((c) => c.label.trim().toLowerCase() === norm)) {
+      res.status(409).json({ error: 'A category with this name already exists' })
+      return
+    }
+
     const id = userCategoryIdFromLabel(label)
     try {
       await upsertCategory({ userId, id, label, color, source: 'user' })
@@ -360,7 +368,12 @@ export function applyUserRoutes(app: Express): void {
       res.status(404).json({ error: 'Not found' })
       return
     }
-    const body = req.body as { type?: unknown; effective_date?: unknown; trip_id?: unknown }
+    const body = req.body as {
+      type?: unknown
+      effective_date?: unknown
+      trip_id?: unknown
+      my_share?: unknown
+    }
     const type = typeof body.type === 'string' ? body.type : ''
     try {
       if (type === 'none') {
@@ -370,6 +383,7 @@ export function applyUserRoutes(app: Express): void {
           mode: 'none',
           effectiveDate: null,
           tripId: null,
+          myShare: null,
         })
         res.status(204).send()
         return
@@ -389,6 +403,7 @@ export function applyUserRoutes(app: Express): void {
           mode: 'date',
           effectiveDate: d.slice(0, 10),
           tripId: null,
+          myShare: null,
         })
         res.status(204).send()
         return
@@ -410,6 +425,32 @@ export function applyUserRoutes(app: Express): void {
           mode: 'trip',
           effectiveDate: null,
           tripId: tid,
+          myShare: null,
+        })
+        res.status(204).send()
+        return
+      }
+      if (type === 'my_share') {
+        const raw = body.my_share
+        const n =
+          raw === null || raw === undefined
+            ? null
+            : typeof raw === 'number'
+              ? raw
+              : typeof raw === 'string'
+                ? Number(raw)
+                : NaN
+        if (n !== null && (!Number.isFinite(n) || n < 0)) {
+          res.status(400).json({ error: 'my_share must be null or a non-negative number' })
+          return
+        }
+        await allocateTransaction({
+          userId,
+          transactionId: txId,
+          mode: 'my_share',
+          effectiveDate: null,
+          tripId: null,
+          myShare: n,
         })
         res.status(204).send()
         return

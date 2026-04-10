@@ -3,6 +3,7 @@ import { MONTHLY_BUDGET_DEFAULTS_BY_CATEGORY } from '@/constants/monthlyBudgetDe
 import {
   filterTransactionsForCalendarMonth,
   formatCurrencyAmount,
+  resolveMyShare,
 } from '@/lib/api'
 import type { Transaction } from '@/lib/domain'
 import {
@@ -78,7 +79,7 @@ export function checkBudgetAlert(transactions: readonly Transaction[]): {
   )
   let spent = 0
   for (const tx of monthTxs) {
-    if (tx.amount > 0) spent += tx.amount
+    if (resolveMyShare(tx) > 0) spent += resolveMyShare(tx)
   }
 
   const percentage = Math.min(100, (spent / budget) * 100)

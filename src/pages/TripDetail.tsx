@@ -7,7 +7,8 @@ import {
   formatCurrencyAmount,
   getCategoryLabel,
   getCategoryPillColor,
-  resolveDisplayCategory,
+  resolveCanonicalDisplayCategory,
+  resolveMyShare,
 } from '@/lib/api'
 import * as storage from '@/lib/storage'
 import { categoryBreakdownForTrip } from '@/lib/insightsCommitments'
@@ -336,7 +337,15 @@ export function TripDetail(): ReactElement {
                         <div className="truncate font-medium">{t.description}</div>
                         <div className="text-muted-foreground text-xs">
                           {t.date} ·{' '}
-                          {getCategoryLabel(resolveDisplayCategory(t, overrides))}
+                          {getCategoryLabel(
+                            resolveCanonicalDisplayCategory(t, overrides),
+                          )}
+                          {t.myShare != null ? (
+                            <span>
+                              {' '}
+                              · My share {formatCurrencyAmount(resolveMyShare(t))}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <span

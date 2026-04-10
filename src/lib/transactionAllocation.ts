@@ -55,10 +55,23 @@ export async function clearTransactionAllocation(
     if (txs) {
       storage.saveTransactions(
         txs.map((t) =>
-          t.id === transactionId ? { ...t, tripId: null, effectiveDate: null } : t,
+          t.id === transactionId
+            ? { ...t, tripId: null, effectiveDate: null, myShare: null }
+            : t,
         ),
       )
     }
   }
   return ok
+}
+
+export async function setTransactionMyShare(
+  transactionId: string,
+  myShare: number | null,
+): Promise<boolean> {
+  const { allocateTransactionOnServer } = await import('@/lib/serverData')
+  return allocateTransactionOnServer(transactionId, {
+    type: 'my_share',
+    my_share: myShare,
+  })
 }
