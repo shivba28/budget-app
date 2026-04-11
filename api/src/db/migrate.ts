@@ -125,6 +125,12 @@ ALTER TABLE accounts
 
 ALTER TABLE transactions
   ADD COLUMN IF NOT EXISTS my_share NUMERIC;
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'bank';
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS account_label TEXT;
 `
 
 let migrated = false

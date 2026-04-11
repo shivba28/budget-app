@@ -2,17 +2,20 @@ import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Building2, Pencil } from 'lucide-react'
 import { listCategoriesForTransactionFilters } from '@/lib/categoryCanonical'
+import { AddTransactionSheet } from '@/components/AddTransactionSheet'
 import { ErrorRetry } from '../components/ErrorRetry'
 import {
   filterTransactionsByVisibleAccounts,
   formatCurrencyAmount,
-  formatTransactionAccountLabel,
+  formatTxAccountForDisplay,
   getCategoryLabel,
   getCategoryPillColor,
   isDeferredOutOfViewMonth,
   isBankTransactionSyncInFlight,
   loadTransactionsFromCacheOrFetch,
+  partitionTransactionsBySource,
   refreshTransactionsFromBackend,
   resolveCanonicalDisplayCategory,
   resolveMyShare,
@@ -30,7 +33,12 @@ import { TransactionAllocateSheet } from '@/components/TransactionAllocateSheet'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import {
+  NAV_PLUS_DISABLED_EVENT,
+  OPEN_ADD_TRANSACTION_EVENT,
+} from '@/constants/navFabEvents'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
+import { IS_LOCAL_STORAGE_MODE } from '@/lib/isLocalDev'
 import { cn } from '@/lib/utils'
 import './Page.css'
 import './Transactions.css'
@@ -77,6 +85,8 @@ function categoryAccentRgba(hex: string, alpha: number): string {
 
 type DirectionFilter = 'all' | 'debit' | 'credit'
 
+type SourceFilter = 'all' | 'bank' | 'manual'
+
 type FailedOp = 'initial' | 'sync' | null
 
 function txRowKey(tx: Transaction): string {
@@ -85,18 +95,30 @@ function txRowKey(tx: Transaction): string {
 
 type VisibleRow =
   | {
+      type: 'section'
+      monthKey: string
+      label: string
+      icon: 'pencil' | 'building'
+    }
+  | {
       type: 'month'
       monthKey: string
       label: string
       count: number
       expanded: boolean
     }
-  | { type: 'tx'; monthKey: string; tx: Transaction }
+  | {
+      type: 'tx'
+      section: 'manual' | 'bank'
+      monthKey: string
+      tx: Transaction
+    }
 
 /** Stable virtual keys so TanStack Virtual does not reuse wrong heights when rows are inserted/removed. */
 function virtualItemKeyForRow(row: VisibleRow): string {
+  if (row.type === 'section') return `s:${row.monthKey}:${row.label}`
   if (row.type === 'month') return `m:${row.monthKey}`
-  return `t:${txRowKey(row.tx)}`
+  return `t:${row.monthKey}:${row.section}:${txRowKey(row.tx)}`
 }
 
 function IconChevron({ expanded }: { readonly expanded: boolean }): ReactElement {
@@ -145,6 +167,7 @@ export function Transactions(): ReactElement {
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [datePreset, setDatePreset] = useState<DatePreset>('all')
   const [customDateFrom, setCustomDateFrom] = useState('')
   const [customDateTo, setCustomDateTo] = useState('')
@@ -172,6 +195,8 @@ export function Transactions(): ReactElement {
   const [tripsRev, setTripsRev] = useState(0)
   const [sheetTx, setSheetTx] = useState<Transaction | null>(null)
   const [sheetPanel, setSheetPanel] = useState<'menu' | 'defer' | 'trip' | 'category'>('menu')
+  const [addSheetOpen, setAddSheetOpen] = useState(false)
+  const [editTx, setEditTx] = useState<Transaction | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
@@ -199,6 +224,43 @@ export function Transactions(): ReactElement {
   useEffect(() => {
     void doInitialLoad()
   }, [doInitialLoad])
+
+  useEffect(() => {
+    const open = (): void => {
+      setEditTx(null)
+      setAddSheetOpen(true)
+    }
+    window.addEventListener(OPEN_ADD_TRANSACTION_EVENT, open)
+    return () =>
+      window.removeEventListener(OPEN_ADD_TRANSACTION_EVENT, open)
+  }, [])
+
+  useEffect(() => {
+    const disabled = addSheetOpen || editTx !== null || sheetTx !== null
+    try {
+      window.dispatchEvent(
+        new CustomEvent(NAV_PLUS_DISABLED_EVENT, {
+          detail: { disabled },
+        }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [addSheetOpen, editTx, sheetTx])
+
+  useEffect(() => {
+    return () => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(NAV_PLUS_DISABLED_EVENT, {
+            detail: { disabled: false },
+          }),
+        )
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const on = (): void => setAccountsTick((n) => n + 1)
@@ -315,8 +377,9 @@ export function Transactions(): ReactElement {
       searchQuery.trim() !== '' ||
       categoryFilter !== 'all' ||
       directionFilter !== 'all' ||
-      datePreset !== 'all',
-    [searchQuery, categoryFilter, directionFilter, datePreset],
+      datePreset !== 'all' ||
+      sourceFilter !== 'all',
+    [searchQuery, categoryFilter, directionFilter, datePreset, sourceFilter],
   )
 
   const hasLinkedBanks = useMemo(() => {
@@ -330,11 +393,12 @@ export function Transactions(): ReactElement {
     [rows],
   )
 
-  const filteredRows = useMemo(() => {
+  const { filteredBankRows, filteredManualRows } = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const accounts = storage.getAccounts() ?? []
     const visible = filterTransactionsByVisibleAccounts(rowsForTable)
-    return visible.filter((tx) => {
+    const { bank, manual } = partitionTransactionsBySource(visible)
+    const pass = (tx: Transaction): boolean => {
       if (
         !transactionMatchesDatePreset(
           tx,
@@ -347,10 +411,7 @@ export function Transactions(): ReactElement {
       }
       if (q) {
         const inDesc = tx.description.toLowerCase().includes(q)
-        const acctLabel = formatTransactionAccountLabel(
-          tx.accountId,
-          accounts,
-        ).toLowerCase()
+        const acctLabel = formatTxAccountForDisplay(tx, accounts).toLowerCase()
         const inAcct = acctLabel.includes(q)
         if (!inDesc && !inAcct) return false
       }
@@ -359,7 +420,11 @@ export function Transactions(): ReactElement {
       if (directionFilter === 'debit' && tx.amount <= 0) return false
       if (directionFilter === 'credit' && tx.amount >= 0) return false
       return true
-    })
+    }
+    return {
+      filteredBankRows: bank.filter(pass),
+      filteredManualRows: manual.filter(pass),
+    }
   }, [
     rowsForTable,
     searchQuery,
@@ -373,50 +438,111 @@ export function Transactions(): ReactElement {
     accountsTick,
   ])
 
-  const monthGroups = useMemo(
-    () => groupTransactionsByMonth(filteredRows),
-    [filteredRows],
+  const displayedManualRows =
+    sourceFilter === 'bank' ? [] : filteredManualRows
+  const displayedBankRows =
+    sourceFilter === 'manual' ? [] : filteredBankRows
+
+  const manualMonthGroups = useMemo(
+    () => groupTransactionsByMonth(displayedManualRows),
+    [displayedManualRows],
+  )
+  const bankMonthGroups = useMemo(
+    () => groupTransactionsByMonth(displayedBankRows),
+    [displayedBankRows],
   )
 
-  const monthKeysSig = useMemo(
-    () => monthGroups.map((g) => g.monthKey).join('|'),
-    [monthGroups],
-  )
+  /** Newest month first; each month lists manual then bank when expanded. */
+  const monthsCombined = useMemo(() => {
+    const map = new Map<
+      string,
+      { manual: Transaction[]; bank: Transaction[] }
+    >()
+    for (const g of manualMonthGroups) {
+      const cur = map.get(g.monthKey) ?? { manual: [], bank: [] }
+      cur.manual = g.transactions
+      map.set(g.monthKey, cur)
+    }
+    for (const g of bankMonthGroups) {
+      const cur = map.get(g.monthKey) ?? { manual: [], bank: [] }
+      cur.bank = g.transactions
+      map.set(g.monthKey, cur)
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([monthKey, both]) => ({
+        monthKey,
+        manual: both.manual,
+        bank: both.bank,
+      }))
+  }, [manualMonthGroups, bankMonthGroups])
 
-  const latestMonthKey = monthGroups[0]?.monthKey ?? null
+  const monthsCombinedSig = useMemo(
+    () => monthsCombined.map((x) => x.monthKey).join('|'),
+    [monthsCombined],
+  )
 
   useEffect(() => {
-    if (latestMonthKey === null) {
-      setExpandedMonthKeys(new Set())
-      return
-    }
-    setExpandedMonthKeys(new Set([latestMonthKey]))
-  }, [latestMonthKey, monthKeysSig])
+    const keys = new Set<string>()
+    const latest = monthsCombined[0]?.monthKey
+    if (latest) keys.add(latest)
+    setExpandedMonthKeys(keys)
+  }, [monthsCombinedSig])
 
   const visibleRows = useMemo((): VisibleRow[] => {
     const out: VisibleRow[] = []
-    for (const g of monthGroups) {
-      const expanded = expandedMonthKeys.has(g.monthKey)
+    for (const { monthKey, manual, bank } of monthsCombined) {
+      const count = manual.length + bank.length
+      const expanded = expandedMonthKeys.has(monthKey)
       out.push({
         type: 'month',
-        monthKey: g.monthKey,
-        label: formatMonthHeading(g.monthKey),
-        count: g.transactions.length,
+        monthKey,
+        label: formatMonthHeading(monthKey),
+        count,
         expanded,
       })
-      if (expanded) {
-        for (const tx of g.transactions) {
-          out.push({ type: 'tx', monthKey: g.monthKey, tx })
+      if (!expanded) continue
+      const bothKinds = manual.length > 0 && bank.length > 0
+      if (manual.length > 0) {
+        if (bothKinds) {
+          out.push({
+            type: 'section',
+            monthKey,
+            label: 'Manual',
+            icon: 'pencil',
+          })
+        }
+        for (const tx of manual) {
+          out.push({ type: 'tx', monthKey, section: 'manual', tx })
+        }
+      }
+      if (bank.length > 0) {
+        if (bothKinds) {
+          out.push({
+            type: 'section',
+            monthKey,
+            label: 'Bank',
+            icon: 'building',
+          })
+        }
+        for (const tx of bank) {
+          out.push({ type: 'tx', monthKey, section: 'bank', tx })
         }
       }
     }
     return out
-  }, [monthGroups, expandedMonthKeys])
+  }, [monthsCombined, expandedMonthKeys])
 
   const rowVirtualizer = useVirtualizer({
     count: visibleRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => (visibleRows[index]?.type === 'month' ? 52 : 62),
+    estimateSize: (index) => {
+      const row = visibleRows[index]
+      if (!row) return 48
+      if (row.type === 'section') return 34
+      if (row.type === 'month') return 52
+      return 62
+    },
     getItemKey: (index) => {
       const row = visibleRows[index]
       return row ? virtualItemKeyForRow(row) : index
@@ -441,6 +567,9 @@ export function Transactions(): ReactElement {
   const viewNow = new Date()
   const viewYear = viewNow.getFullYear()
   const viewMonth = viewNow.getMonth() + 1
+
+  const hasAnyDisplayed =
+    displayedManualRows.length > 0 || displayedBankRows.length > 0
 
   function openTxSheet(tx: Transaction, panel: 'menu' | 'defer' | 'trip' | 'category' = 'menu'): void {
     setSheetPanel(panel)
@@ -477,7 +606,7 @@ export function Transactions(): ReactElement {
         <div className="tx-screen-head">
           <h1 className="page__title">Transactions</h1>
           <div className="tx-screen-head__trailing">
-            {hasLinkedBanks ? (
+            {IS_LOCAL_STORAGE_MODE ? null : hasLinkedBanks ? (
               <Button
                 type="button"
                 className="tx-sync-btn"
@@ -503,7 +632,7 @@ export function Transactions(): ReactElement {
             )}
           </div>
         </div>
-        {syncing ? (
+        {!IS_LOCAL_STORAGE_MODE && syncing ? (
           <p className="tx-sync-status" role="status">
             {syncProgress?.phase === 'server_merge'
               ? 'Merging transactions…'
@@ -522,7 +651,7 @@ export function Transactions(): ReactElement {
             ) : null}
           </p>
         ) : null}
-        {syncing && syncProgress ? (
+        {!IS_LOCAL_STORAGE_MODE && syncing && syncProgress ? (
           <div
             className="tx-sync-progress"
             role="progressbar"
@@ -674,6 +803,35 @@ export function Transactions(): ReactElement {
                   ))}
                 </div>
               </fieldset>
+              <fieldset className="tx-toolbar__fieldset">
+                <legend className="tx-toolbar__label mb-2">Source</legend>
+                <div
+                  className="tx-toggle-group tx-toggle-group--spaced"
+                  role="group"
+                  aria-label="Filter by transaction source"
+                >
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['bank', 'Bank'],
+                      ['manual', 'Manual'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={
+                        sourceFilter === value
+                          ? 'tx-toggle tx-toggle--active'
+                          : 'tx-toggle'
+                      }
+                      onClick={() => setSourceFilter(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
             </div>
           </div>
         </div>
@@ -682,7 +840,7 @@ export function Transactions(): ReactElement {
       <div ref={scrollRef} className="tx-scroll">
         {bootstrapLoading && rows.length === 0 ? <TransactionsSkeleton /> : null}
 
-        {syncing ? <TransactionsSkeleton /> : null}
+        {!IS_LOCAL_STORAGE_MODE && syncing ? <TransactionsSkeleton /> : null}
 
         {showInitialError ? (
           <div className="tx-screen-head tx-screen-head--embedded">
@@ -699,7 +857,12 @@ export function Transactions(): ReactElement {
         {!filtersActive && rowsForTable.length === 0 && !bootstrapLoading ? (
           <Card className="border-dashed shadow-none" role="status">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
-              {hasLinkedBanks ? (
+              {IS_LOCAL_STORAGE_MODE ? (
+                <>
+                  No transactions yet. Tap <strong className="text-foreground">+</strong>{' '}
+                  in the bar below to add a manual entry.
+                </>
+              ) : hasLinkedBanks ? (
                 <>
                   No transactions yet. Tap{' '}
                   <strong className="text-foreground">Sync</strong> to pull
@@ -707,18 +870,18 @@ export function Transactions(): ReactElement {
                 </>
               ) : (
                 <>
-                  No transactions yet. Use{' '}
+                  No transactions yet. Tap <strong className="text-foreground">+</strong>{' '}
+                  in the bar below to add a manual entry, or use{' '}
                   <strong className="text-foreground">Add bank</strong> above to
-                  link an institution; after that, use{' '}
-                  <strong className="text-foreground">Sync</strong> to pull
-                  activity.
+                  link an institution and <strong className="text-foreground">Sync</strong>{' '}
+                  for bank activity.
                 </>
               )}
             </CardContent>
           </Card>
         ) : null}
 
-        {filtersActive && filteredRows.length === 0 && !bootstrapLoading ? (
+        {filtersActive && !hasAnyDisplayed && !bootstrapLoading ? (
           <Card className="border-dashed shadow-none" role="status">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
               No transactions match your filters. Try clearing search or filters.
@@ -726,7 +889,7 @@ export function Transactions(): ReactElement {
           </Card>
         ) : null}
 
-        {filteredRows.length > 0 && !bootstrapLoading && !syncing ? (
+        {hasAnyDisplayed && !bootstrapLoading && !syncing ? (
           <div className="tx-accordion-wrap">
             <p className="tx-accordion-hint">
               Tap a transaction for allocation and details.
@@ -738,6 +901,36 @@ export function Transactions(): ReactElement {
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const row = visibleRows[virtualRow.index]
                 if (!row) return null
+                if (row.type === 'section') {
+                  return (
+                    <div
+                      key={`s-${row.monthKey}-${row.label}`}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      className="tx-virtual-row tx-virtual-row--section"
+                      style={{
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 px-1 py-1.5">
+                        {row.icon === 'pencil' ? (
+                          <Pencil
+                            className="size-3 shrink-0 text-muted-foreground"
+                            aria-hidden
+                          />
+                        ) : (
+                          <Building2
+                            className="size-3 shrink-0 text-muted-foreground"
+                            aria-hidden
+                          />
+                        )}
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {row.label}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                }
                 if (row.type === 'month') {
                   return (
                     <div
@@ -769,7 +962,7 @@ export function Transactions(): ReactElement {
                 }
 
                 const tx = row.tx
-                const rowKey = txRowKey(tx)
+                const rowKey = `${row.monthKey}:${row.section}:${txRowKey(tx)}`
                 const effectiveId = resolveCanonicalDisplayCategory(
                   tx,
                   categoryOverrides,
@@ -806,7 +999,7 @@ export function Transactions(): ReactElement {
                             {tx.description}
                           </span>
                           <span className="max-w-[44%] shrink-0 truncate text-xs text-muted-foreground">
-                            {formatTransactionAccountLabel(tx.accountId, accountsForTable)}
+                            {formatTxAccountForDisplay(tx, accountsForTable)}
                           </span>
                         </div>
                         <div className="mt-2 flex items-center justify-between gap-3">
@@ -849,10 +1042,20 @@ export function Transactions(): ReactElement {
         open={sheetTx !== null}
         initialPanel={sheetPanel}
         onClose={() => setSheetTx(null)}
+        onRequestEditManual={(t) => setEditTx(t)}
         onApplied={() => {
           setRows(storage.getTransactions() ?? [])
           setCategoryOverrides({ ...storage.getCategoryOverrides() })
         }}
+      />
+      <AddTransactionSheet
+        open={addSheetOpen || editTx !== null}
+        editingTransaction={editTx}
+        onClose={() => {
+          setAddSheetOpen(false)
+          setEditTx(null)
+        }}
+        onAdded={() => setRows(storage.getTransactions() ?? [])}
       />
     </main>
   )

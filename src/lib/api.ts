@@ -7,6 +7,7 @@ import {
   resolveTransactionBudgetMonthKey,
   tripsMapFromList,
 } from './effectiveMonth'
+import { IS_LOCAL_STORAGE_MODE } from '@/lib/isLocalDev'
 import * as storage from './storage'
 import { fetchTransactionsFromServer } from './serverData'
 import {
@@ -65,11 +66,38 @@ function emitSyncProgress(p: {
 export function filterTransactionsForLinkedBankAccounts(
   txs: readonly Transaction[],
 ): Transaction[] {
+  if (IS_LOCAL_STORAGE_MODE) return [...txs]
   const accounts = storage.getAccounts()
   if (accounts === null) return [...txs]
-  if (accounts.length === 0) return []
+  if (accounts.length === 0) {
+    return txs.filter((t) => t.source === 'manual')
+  }
   const allowed = new Set(accounts.map((a) => a.id))
-  return txs.filter((t) => allowed.has(t.accountId))
+  return txs.filter(
+    (t) => t.source === 'manual' || allowed.has(t.accountId),
+  )
+}
+
+export function partitionTransactionsBySource(txs: readonly Transaction[]): {
+  bank: Transaction[]
+  manual: Transaction[]
+} {
+  const bank: Transaction[] = []
+  const manual: Transaction[] = []
+  for (const tx of txs) {
+    if (tx.source === 'manual') manual.push(tx)
+    else bank.push(tx)
+  }
+  return { bank, manual }
+}
+
+function mergeRemoteTransactionsWithLinkedAccounts(
+  remote: readonly Transaction[],
+  linkedIds: ReadonlySet<string>,
+): Transaction[] {
+  return remote.filter(
+    (t) => t.source === 'manual' || linkedIds.has(t.accountId),
+  )
 }
 
 /** Transactions / Insights: linked banks, then omit accounts the user unchecked in Settings. */
@@ -303,6 +331,19 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
   const pending =
     r.status === 'pending' || r.pending === true || r.pending === 'true'
 
+  const srcRaw = r.source
+  const source: 'bank' | 'manual' | undefined =
+    srcRaw === 'manual'
+      ? 'manual'
+      : srcRaw === 'bank'
+        ? 'bank'
+        : undefined
+
+  let accountLabel: string | undefined
+  const al =
+    r.accountLabel !== undefined ? r.accountLabel : r.account_label
+  if (typeof al === 'string' && al.trim()) accountLabel = al.trim()
+
   const base: Transaction = {
     id,
     accountId,
@@ -310,6 +351,8 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
     date,
     categoryId,
     description,
+    ...(source !== undefined ? { source } : {}),
+    ...(accountLabel !== undefined ? { accountLabel } : {}),
     ...(myShare !== undefined ? { myShare } : {}),
     ...(pending ? { pending: true as const } : {}),
   }
@@ -438,6 +481,14 @@ export async function loadTransactionsFromCacheOrFetch(options?: {
   if (cached !== null) {
     return filterTransactionsForLinkedBankAccounts(cached)
   }
+  if (IS_LOCAL_STORAGE_MODE) {
+    const remote = await fetchTransactionsFromServer()
+    if (remote) {
+      storage.saveTransactions(remote)
+      return filterTransactionsForLinkedBankAccounts(remote)
+    }
+    return refreshTransactionsFromBackend(options)
+  }
   let accs = storage.getAccounts()
   if (accs === null) {
     try {
@@ -447,18 +498,19 @@ export async function loadTransactionsFromCacheOrFetch(options?: {
       return refreshTransactionsFromBackend(options)
     }
   }
-  if (accs.length === 0) {
-    storage.saveTransactions([])
-    return []
-  }
   const remote = await fetchTransactionsFromServer()
-  if (remote) {
-    const allowed = new Set(accs.map((a) => a.id))
-    const filtered = remote.filter((t) => allowed.has(t.accountId))
-    storage.saveTransactions(filtered)
-    return filtered
+  if (!remote) {
+    return refreshTransactionsFromBackend(options)
   }
-  return refreshTransactionsFromBackend(options)
+  if (accs.length === 0) {
+    const manualOnly = remote.filter((t) => t.source === 'manual')
+    storage.saveTransactions(manualOnly)
+    return filterTransactionsForLinkedBankAccounts(manualOnly)
+  }
+  const allowed = new Set(accs.map((a) => a.id))
+  const merged = mergeRemoteTransactionsWithLinkedAccounts(remote, allowed)
+  storage.saveTransactions(merged)
+  return filterTransactionsForLinkedBankAccounts(merged)
 }
 
 /**
@@ -491,6 +543,29 @@ export async function refreshTransactionsFromBackend(options?: {
   if (onProgress) syncProgressListeners.add(onProgress)
   window.dispatchEvent(new CustomEvent(storage.BANK_SYNC_STARTED_EVENT))
   syncInFlight = (async () => {
+  if (IS_LOCAL_STORAGE_MODE) {
+    emitSyncProgress({ phase: 'rehydrate', done: 0, total: 1 })
+    await rehydrateBackendSessionIfNeeded()
+    emitSyncProgress({ phase: 'rehydrate', done: 1, total: 1 })
+    emitSyncProgress({ phase: 'accounts', done: 1, total: 1 })
+    emitSyncProgress({ phase: 'account_transactions', done: 0, total: 0 })
+    emitSyncProgress({ phase: 'server_merge', done: 0, total: 0 })
+    try {
+      const remote = await fetchTransactionsFromServer()
+      if (remote) {
+        storage.saveTransactions(remote)
+        emitSyncProgress({ phase: 'finalize', done: 0, total: 0 })
+        return filterTransactionsForLinkedBankAccounts(remote)
+      }
+    } catch {
+      /* ignore */
+    }
+    if (throwOnFailure) {
+      throw new Error('Could not load transactions from server')
+    }
+    emitSyncProgress({ phase: 'finalize', done: 0, total: 0 })
+    return []
+  }
   emitSyncProgress({ phase: 'rehydrate', done: 0, total: 1 })
   await rehydrateBackendSessionIfNeeded()
   emitSyncProgress({ phase: 'rehydrate', done: 1, total: 1 })
@@ -506,7 +581,21 @@ export async function refreshTransactionsFromBackend(options?: {
     emitSyncProgress({ phase: 'accounts', done: 1, total: 1 })
   }
   if (!list || list.length === 0) {
+    emitSyncProgress({ phase: 'account_transactions', done: 0, total: 0 })
+    emitSyncProgress({ phase: 'server_merge', done: 0, total: 0 })
+    try {
+      const remote = await fetchTransactionsFromServer()
+      if (remote) {
+        const manualOnly = remote.filter((t) => t.source === 'manual')
+        storage.saveTransactions(manualOnly)
+        emitSyncProgress({ phase: 'finalize', done: 0, total: 0 })
+        return filterTransactionsForLinkedBankAccounts(manualOnly)
+      }
+    } catch {
+      /* fall through */
+    }
     storage.saveTransactions([])
+    emitSyncProgress({ phase: 'finalize', done: 0, total: 0 })
     return []
   }
   try {
@@ -531,11 +620,11 @@ export async function refreshTransactionsFromBackend(options?: {
     const remote = await fetchTransactionsFromServer()
     if (remote) {
       const allowed = new Set(list.map((a) => a.id))
-      const filtered = remote.filter((t) => allowed.has(t.accountId))
-      storage.saveTransactions(filtered)
+      const merged = mergeRemoteTransactionsWithLinkedAccounts(remote, allowed)
+      storage.saveTransactions(merged)
       storage.recordSuccessfulBankTransactionFetch()
       emitSyncProgress({ phase: 'finalize', done: total, total })
-      return filtered
+      return filterTransactionsForLinkedBankAccounts(merged)
     }
     if (throwOnFailure) {
       throw new Error('Could not load transactions from server')
@@ -759,6 +848,13 @@ export function persistCategoryOverride(
   categoryId: string,
 ): void {
   if (!isKnownCategoryId(categoryId)) return
+  if (IS_LOCAL_STORAGE_MODE) {
+    storage.setCategoryOverride(transactionId, categoryId)
+    void import('@/lib/localStorageBackend').then((m) =>
+      m.persistCategoryOverrideToLocalStorage(transactionId, categoryId),
+    )
+    return
+  }
   storage.setCategoryOverride(transactionId, categoryId)
 }
 
@@ -780,6 +876,17 @@ export function formatTransactionAccountLabel(
   const ins = acc.institution?.name?.trim()
   if (ins) return `${ins} · ${acc.name}`
   return acc.name
+}
+
+/** Account column for a row; uses `accountLabel` for manual transactions. */
+export function formatTxAccountForDisplay(
+  tx: Transaction,
+  accounts: readonly Account[] | null,
+): string {
+  if (tx.source === 'manual' && tx.accountLabel?.trim()) {
+    return tx.accountLabel.trim()
+  }
+  return formatTransactionAccountLabel(tx.accountId, accounts)
 }
 
 export function loadStoredConnectionInfo(): ConnectedAccountInfo | null {

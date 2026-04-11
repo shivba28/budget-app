@@ -7,6 +7,7 @@ import { applyWebAuthnRoutes } from './routes/auth/webauthnRoutes.js'
 import { applyTellerRoutes } from './routes/teller/tellerRoutes.js'
 import { applyUserRoutes } from './routes/user/userRoutes.js'
 import { config } from './auth/config/env.js'
+import { dbEnabled } from './db/pool.js'
 import { runMigrationsIfNeeded } from './db/migrate.js'
 
 const port = config.port
@@ -80,6 +81,17 @@ async function start(): Promise<void> {
     console.error(
       '[db] Startup migrations failed; starting API without DB connectivity.',
       err,
+    )
+    console.error(
+      '[db] If you do not need Postgres locally, remove or comment out DATABASE_URL in api/.env and use VITE_USE_LOCAL_STORAGE=true in the Vite .env (repo root).',
+    )
+    console.error(
+      '[db] If you do use Neon: confirm DATABASE_URL, wake the project in the dashboard, try DATABASE_CONNECT_TIMEOUT_MS=120000, or use the pooler connection string.',
+    )
+  }
+  if (!dbEnabled()) {
+    console.log(
+      '[db] DATABASE_URL unset — Postgres disabled (no Neon connection). /api/user/* will return 503. For trips/transactions/budgets in the browser, set VITE_USE_LOCAL_STORAGE=true in the repo root .env.',
     )
   }
   app.listen(port, () => {

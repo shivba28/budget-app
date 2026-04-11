@@ -1,4 +1,10 @@
-import type { Account, ConnectedAccountInfo, Transaction, Trip } from './domain'
+import type {
+  Account,
+  ConnectedAccountInfo,
+  ManualAccount,
+  Transaction,
+  Trip,
+} from './domain'
 
 export const KEYS = {
   accounts: 'budget-app:accounts',
@@ -31,6 +37,8 @@ export const KEYS = {
   customCategories: 'budget-app:custom-categories',
   /** Server-backed categories cache (JSON: {id,label,color,source}[]) */
   categories: 'budget-app:categories',
+  /** Local manual account names for Apple Card / cash tracking (JSON ManualAccount[]) */
+  manualAccounts: 'budget-app:manual-accounts',
 } as const
 
 let serverMem: {
@@ -39,12 +47,14 @@ let serverMem: {
   trips: Trip[] | null
   categories: CategoryRow[] | null
   monthlyBudgets: MonthlyBudgetsStoredV1 | null
+  manualAccounts: ManualAccount[] | null
 } = {
   accounts: null,
   transactions: null,
   trips: null,
   categories: null,
   monthlyBudgets: null,
+  manualAccounts: null,
 }
 
 /** Fired when account visibility toggles or exclusions list is pruned */
@@ -69,6 +79,8 @@ export const MONTHLY_BUDGETS_CHANGED_EVENT = 'budget-app-monthly-budgets-changed
 export const BUDGET_ALERT_ACK_RESET_EVENT = 'budget-app-budget-alert-ack-reset'
 
 export const TRIPS_CHANGED_EVENT = 'budget-app-trips-changed'
+
+export const MANUAL_ACCOUNTS_CHANGED_EVENT = 'budget-app-manual-accounts-changed'
 
 /** Fired when custom categories are added/removed. */
 export const CUSTOM_CATEGORIES_CHANGED_EVENT = 'budget-app-custom-categories-changed'
@@ -352,6 +364,46 @@ export function saveTrips(trips: Trip[]): void {
   dispatchTripsChanged()
 }
 
+function parseManualAccounts(raw: unknown): ManualAccount[] {
+  if (!Array.isArray(raw)) return []
+  const out: ManualAccount[] = []
+  for (const v of raw) {
+    if (!v || typeof v !== 'object') continue
+    const r = v as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id.trim() : ''
+    const name = typeof r.name === 'string' ? r.name.trim() : ''
+    const createdAt =
+      typeof r.createdAt === 'string' && r.createdAt.trim()
+        ? r.createdAt
+        : typeof r.created_at === 'string' && r.created_at.trim()
+          ? r.created_at
+          : new Date().toISOString()
+    if (!id || !name) continue
+    out.push({ id, name, createdAt })
+  }
+  return out
+}
+
+function rehydrateManualAccountsIfNeeded(): void {
+  if (serverMem.manualAccounts !== null) return
+  serverMem.manualAccounts = parseManualAccounts(readJson(KEYS.manualAccounts))
+}
+
+export function getManualAccounts(): ManualAccount[] {
+  rehydrateManualAccountsIfNeeded()
+  return serverMem.manualAccounts ?? []
+}
+
+export function saveManualAccounts(accounts: ManualAccount[]): void {
+  serverMem.manualAccounts = accounts
+  writeJson(KEYS.manualAccounts, accounts)
+  try {
+    window.dispatchEvent(new CustomEvent(MANUAL_ACCOUNTS_CHANGED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
 /** @deprecated Use getEnrollments */
 export function saveAccessToken(token: string): void {
   localStorage.setItem(KEYS.accessToken, token)
@@ -446,11 +498,13 @@ export function clearAll(): void {
   localStorage.removeItem(KEYS.trips)
   localStorage.removeItem(KEYS.customCategories)
   localStorage.removeItem(KEYS.categories)
+  localStorage.removeItem(KEYS.manualAccounts)
   serverMem = {
     accounts: null,
     transactions: null,
     trips: null,
     categories: null,
     monthlyBudgets: null,
+    manualAccounts: null,
   }
 }

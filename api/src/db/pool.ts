@@ -32,7 +32,8 @@ function connectTimeoutMs(): number {
   const raw = process.env.DATABASE_CONNECT_TIMEOUT_MS
   const n = raw !== undefined && raw !== '' ? Number(raw) : 60_000
   if (!Number.isFinite(n)) return 60_000
-  return Math.min(120_000, Math.max(5_000, n))
+  /** Neon cold start + TLS can exceed 60s on some networks; cap at 3 min. */
+  return Math.min(180_000, Math.max(5_000, n))
 }
 
 function buildPoolConfig(url: string): PoolConfig {
@@ -93,23 +94,47 @@ export function dbEnabled(): boolean {
   return pool !== null
 }
 
+const TRANSIENT_PG_CODES = new Set([
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ECONNREFUSED',
+])
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isTransientPgError(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false
+  const code =
+    'code' in e && typeof (e as { code?: unknown }).code === 'string'
+      ? (e as { code: string }).code
+      : undefined
+  return code !== undefined && TRANSIENT_PG_CODES.has(code)
+}
+
+/** Max attempts for a single statement (Neon wake-up / flaky routes). */
+const PG_QUERY_MAX_ATTEMPTS = 3
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
   params?: unknown[],
 ): Promise<{ rows: T[]; rowCount: number }> {
   if (!pool) throw new Error('Database not configured (DATABASE_URL missing)')
-  try {
-    const res = await pool.query(text, params)
-    return { rows: res.rows as T[], rowCount: res.rowCount ?? 0 }
-  } catch (e) {
-    // Neon cold starts / transient TCP resets can surface as ECONNRESET before TLS.
-    const code =
-      e && typeof e === 'object' && 'code' in e ? (e as any).code : undefined
-    if (code === 'ECONNRESET' || code === 'ETIMEDOUT') {
-      // One retry is usually enough once the compute wakes up.
+  let last: unknown
+  for (let attempt = 0; attempt < PG_QUERY_MAX_ATTEMPTS; attempt++) {
+    try {
       const res = await pool.query(text, params)
       return { rows: res.rows as T[], rowCount: res.rowCount ?? 0 }
+    } catch (e) {
+      last = e
+      if (isTransientPgError(e) && attempt < PG_QUERY_MAX_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1))
+        continue
+      }
+      throw e
     }
-    throw e
   }
+  throw last
 }

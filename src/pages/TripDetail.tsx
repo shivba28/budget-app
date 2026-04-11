@@ -11,10 +11,14 @@ import {
   resolveMyShare,
 } from '@/lib/api'
 import * as storage from '@/lib/storage'
+import { AddTripSheet } from '@/components/AddTripSheet'
+import {
+  NAV_PLUS_DISABLED_EVENT,
+  OPEN_ADD_TRIP_EVENT,
+} from '@/constants/navFabEvents'
 import { categoryBreakdownForTrip } from '@/lib/insightsCommitments'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
 import './Page.css'
 import './Summary.css'
@@ -28,11 +32,8 @@ export function TripDetail(): ReactElement {
 
   const [rev, setRev] = useState(0)
   const [bankRev, setBankRev] = useState(0)
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState('')
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
-  const [budget, setBudget] = useState('')
+  const [addTripSheetOpen, setAddTripSheetOpen] = useState(false)
+  const [editTripSheetOpen, setEditTripSheetOpen] = useState(false)
 
   useEffect(() => {
     const on = (): void => setRev((n) => n + 1)
@@ -46,6 +47,40 @@ export function TripDetail(): ReactElement {
     window.addEventListener(storage.BANK_SYNC_COMPLETED_EVENT, on)
     return () =>
       window.removeEventListener(storage.BANK_SYNC_COMPLETED_EVENT, on)
+  }, [])
+
+  useEffect(() => {
+    const open = (): void => {
+      setEditTripSheetOpen(false)
+      setAddTripSheetOpen(true)
+    }
+    window.addEventListener(OPEN_ADD_TRIP_EVENT, open)
+    return () => window.removeEventListener(OPEN_ADD_TRIP_EVENT, open)
+  }, [])
+
+  useEffect(() => {
+    const disabled = addTripSheetOpen || editTripSheetOpen
+    try {
+      window.dispatchEvent(
+        new CustomEvent(NAV_PLUS_DISABLED_EVENT, { detail: { disabled } }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [addTripSheetOpen, editTripSheetOpen])
+
+  useEffect(() => {
+    return () => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(NAV_PLUS_DISABLED_EVENT, {
+            detail: { disabled: false },
+          }),
+        )
+      } catch {
+        /* ignore */
+      }
+    }
   }, [])
 
   const trip = useMemo(() => {
@@ -76,18 +111,11 @@ export function TripDetail(): ReactElement {
   const totalSpend = useMemo(() => {
     let s = 0
     for (const t of tripTxs) {
-      if (t.amount > 0) s += t.amount
+      const share = resolveMyShare(t)
+      if (share > 0) s += share
     }
     return s
   }, [tripTxs])
-
-  useEffect(() => {
-    if (!trip) return
-    setName(trip.name)
-    setStart(trip.startDate)
-    setEnd(trip.endDate ?? '')
-    setBudget(trip.budgetLimit !== null ? String(trip.budgetLimit) : '')
-  }, [trip])
 
   if (!Number.isFinite(tripId) || tripId < 1) {
     return (
@@ -116,28 +144,6 @@ export function TripDetail(): ReactElement {
   }
 
   const activeTrip = trip
-
-  async function saveEdit(): Promise<void> {
-    const n = name.trim()
-    if (!n || start.length < 10) return
-    let budgetLimit: number | null = null
-    const b = budget.trim().replace(/[$,]/g, '')
-    if (b !== '') {
-      const x = Number(b)
-      if (!Number.isFinite(x) || x < 0) return
-      budgetLimit = Math.round(x * 100) / 100
-    }
-    const { updateTripOnServer } = await import('@/lib/serverData')
-    const ok = await updateTripOnServer(activeTrip.id, {
-      name: n,
-      startDate: start,
-      endDate: end.trim().length >= 10 ? end.slice(0, 10) : null,
-      budgetLimit,
-    })
-    if (!ok) return
-    setRev((x) => x + 1)
-    setEditing(false)
-  }
 
   async function removeTrip(): Promise<void> {
     if (
@@ -179,76 +185,27 @@ export function TripDetail(): ReactElement {
       </div>
 
       <div ref={scrollRef} className="summary-scroll space-y-3">
-        {!editing ? (
-          <div className="space-y-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => setEditing(true)}
-            >
-              Edit trip
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() => void removeTrip()}
-            >
-              Delete trip
-            </Button>
-          </div>
-        ) : (
-          <Card className="shadow-xs">
-            <CardContent className="space-y-3 pt-4">
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Name</span>
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Start date</span>
-                <Input
-                  type="date"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">End date (optional)</span>
-                <Input
-                  type="date"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Budget limit (optional)</span>
-                <Input
-                  inputMode="decimal"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                />
-              </label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  className="flex-1"
-                  onClick={() => void saveEdit()}
-                >
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="flex-1"
-                  onClick={() => setEditing(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setAddTripSheetOpen(false)
+              setEditTripSheetOpen(true)
+            }}
+          >
+            Edit trip
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => void removeTrip()}
+          >
+            Delete trip
+          </Button>
+        </div>
 
         <Card className="shadow-xs">
           <CardHeader className="pb-2">
@@ -328,7 +285,12 @@ export function TripDetail(): ReactElement {
               <ul className="divide-y divide-border">
                 {[...tripTxs]
                   .sort((a, b) => b.date.localeCompare(a.date))
-                  .map((t) => (
+                  .map((t) => {
+                    const share = resolveMyShare(t)
+                    const showTotal =
+                      t.myShare != null &&
+                      Math.abs(t.amount - share) > 1e-6
+                    return (
                     <li
                       key={`${t.accountId}:${t.id}`}
                       className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
@@ -340,30 +302,48 @@ export function TripDetail(): ReactElement {
                           {getCategoryLabel(
                             resolveCanonicalDisplayCategory(t, overrides),
                           )}
-                          {t.myShare != null ? (
+                          {showTotal ? (
                             <span>
                               {' '}
-                              · My share {formatCurrencyAmount(resolveMyShare(t))}
+                              · Total {formatCurrencyAmount(t.amount)}
                             </span>
                           ) : null}
                         </div>
                       </div>
                       <span
                         className={
-                          t.amount > 0
+                          share > 0
                             ? 'shrink-0 tabular-nums text-foreground'
                             : 'shrink-0 tabular-nums text-muted-foreground'
                         }
                       >
-                        {formatCurrencyAmount(t.amount)}
+                        {formatCurrencyAmount(share)}
                       </span>
                     </li>
-                  ))}
+                  )})}
               </ul>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <AddTripSheet
+        open={addTripSheetOpen || editTripSheetOpen}
+        tripToEdit={editTripSheetOpen ? activeTrip : null}
+        onClose={() => {
+          setAddTripSheetOpen(false)
+          setEditTripSheetOpen(false)
+        }}
+        onAdded={(trip) => {
+          setRev((n) => n + 1)
+          setAddTripSheetOpen(false)
+          navigate(`/app/trips/${trip.id}`)
+        }}
+        onUpdated={() => {
+          setRev((n) => n + 1)
+          setEditTripSheetOpen(false)
+        }}
+      />
     </main>
   )
 }

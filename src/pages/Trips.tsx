@@ -1,13 +1,16 @@
 import type { ReactElement } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Plane } from 'lucide-react'
+import { AddTripSheet } from '@/components/AddTripSheet'
 import { filterTransactionsByVisibleAccounts, formatCurrencyAmount } from '@/lib/api'
 import * as storage from '@/lib/storage'
 import { buildTripSummaries } from '@/lib/insightsCommitments'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import {
+  NAV_PLUS_DISABLED_EVENT,
+  OPEN_ADD_TRIP_EVENT,
+} from '@/constants/navFabEvents'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
 import './Page.css'
 import './Summary.css'
@@ -15,16 +18,11 @@ import './Summary.css'
 export function Trips(): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
+  const location = useLocation()
+  const navigate = useNavigate()
   const [rev, setRev] = useState(0)
   const [bankRev, setBankRev] = useState(0)
-  const [showNew, setShowNew] = useState(false)
-  const [name, setName] = useState('')
-  const [start, setStart] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  })
-  const [end, setEnd] = useState('')
-  const [budget, setBudget] = useState('')
+  const [addTripSheetOpen, setAddTripSheetOpen] = useState(false)
 
   useEffect(() => {
     const on = (): void => setRev((n) => n + 1)
@@ -51,6 +49,45 @@ export function Trips(): ReactElement {
     })()
   }, [])
 
+  useEffect(() => {
+    const s = location.state as { openNewTrip?: boolean } | null | undefined
+    if (s?.openNewTrip) {
+      setAddTripSheetOpen(true)
+      navigate('.', { replace: true, state: null })
+    }
+  }, [location.state, navigate])
+
+  useEffect(() => {
+    const open = (): void => setAddTripSheetOpen(true)
+    window.addEventListener(OPEN_ADD_TRIP_EVENT, open)
+    return () => window.removeEventListener(OPEN_ADD_TRIP_EVENT, open)
+  }, [])
+
+  useEffect(() => {
+    const disabled = addTripSheetOpen
+    try {
+      window.dispatchEvent(
+        new CustomEvent(NAV_PLUS_DISABLED_EVENT, { detail: { disabled } }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [addTripSheetOpen])
+
+  useEffect(() => {
+    return () => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(NAV_PLUS_DISABLED_EVENT, {
+            detail: { disabled: false },
+          }),
+        )
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
   const trips = useMemo(() => storage.getTrips(), [rev])
   const txs = useMemo(() => {
     void bankRev
@@ -62,104 +99,20 @@ export function Trips(): ReactElement {
     [txs, trips],
   )
 
-  async function createTrip(): Promise<void> {
-    const n = name.trim()
-    if (!n || start.length < 10) return
-    let budgetLimit: number | null = null
-    const b = budget.trim().replace(/[$,]/g, '')
-    if (b !== '') {
-      const x = Number(b)
-      if (!Number.isFinite(x) || x < 0) return
-      budgetLimit = Math.round(x * 100) / 100
-    }
-    const { createTripOnServer } = await import('@/lib/serverData')
-    const created = await createTripOnServer({
-      name: n,
-      startDate: start,
-      endDate: end.trim().length >= 10 ? end.slice(0, 10) : null,
-      budgetLimit,
-      color: null,
-    })
-    if (!created) return
-    setName('')
-    setEnd('')
-    setBudget('')
-    setShowNew(false)
-    setRev((x) => x + 1)
-  }
-
   return (
     <main className="page page--fill page--summary summary-root">
       <div className="summary-top">
         <div className="summary-head">
           <h1 className="page__title">Trips</h1>
-          <div className="summary-head__trailing">
-          </div>
         </div>
       </div>
 
       <div ref={scrollRef} className="summary-scroll space-y-3">
-        <Button
-          type="button"
-          className="w-full"
-          variant="secondary"
-          onClick={() => setShowNew((v) => !v)}
-        >
-          {showNew ? 'Cancel' : 'New trip'}
-        </Button>
-
-        {showNew ? (
-          <Card className="shadow-xs">
-            <CardContent className="space-y-3 pt-4">
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Name</span>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Japan June 2026"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Start date</span>
-                <Input
-                  type="date"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">End date (optional)</span>
-                <Input
-                  type="date"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Budget limit (optional)</span>
-                <Input
-                  inputMode="decimal"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                />
-              </label>
-              <Button
-                type="button"
-                className="w-full"
-                disabled={!name.trim() || start.length < 10}
-                onClick={() => void createTrip()}
-              >
-                Create trip
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {rows.length === 0 && !showNew ? (
+        {rows.length === 0 && !addTripSheetOpen ? (
           <Card className="border-dashed shadow-none" role="status">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
-              No trips yet. Create one to group travel spending, or assign transactions from the
-              Transactions tab.
+              No trips yet. Tap <strong className="text-foreground">+</strong> below to add a trip,
+              or assign transactions from the Transactions tab.
             </CardContent>
           </Card>
         ) : null}
@@ -224,6 +177,14 @@ export function Trips(): ReactElement {
           )
         })}
       </div>
+
+      <AddTripSheet
+        open={addTripSheetOpen}
+        onClose={() => setAddTripSheetOpen(false)}
+        onAdded={() => {
+          setRev((n) => n + 1)
+        }}
+      />
     </main>
   )
 }

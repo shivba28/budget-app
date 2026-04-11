@@ -16,6 +16,10 @@ export interface Transaction {
   readonly date: string
   readonly categoryId: string
   readonly description: string
+  /** Server-backed; manual entries use `manual`. */
+  readonly source?: 'bank' | 'manual'
+  /** Display name for manual account (when `source === 'manual'`). */
+  readonly accountLabel?: string
   /** Raw Teller `details.category` when present (used for Insights grouping). */
   readonly detailCategory?: string
   /** When set, use this as the user’s personal cost instead of the full amount. */
@@ -28,6 +32,12 @@ export interface Transaction {
   readonly tripId?: number | null
   /** When true, row is not shown on the Transactions page (still stored for when it posts). */
   readonly pending?: boolean
+}
+
+export interface ManualAccount {
+  readonly id: string
+  readonly name: string
+  readonly createdAt: string
 }
 
 export interface Trip {

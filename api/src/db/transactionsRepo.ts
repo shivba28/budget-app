@@ -13,6 +13,8 @@ export type DbTransactionRow = {
   category: string | null
   detail_category: string | null
   pending: boolean | null
+  source: string | null
+  account_label: string | null
 }
 
 export async function upsertTransactionFromTeller(params: {
@@ -80,11 +82,85 @@ export async function getAllocationsForIds(
 export async function listTransactionsForUser(userId: string): Promise<DbTransactionRow[]> {
   const { rows } = await query<DbTransactionRow>(
     `SELECT user_id, id, account_id, date::text AS date, effective_date::text AS effective_date,
-            trip_id, my_share::text AS my_share, amount::text AS amount, description, category, detail_category, pending
+            trip_id, my_share::text AS my_share, amount::text AS amount, description, category, detail_category, pending,
+            coalesce(source, 'bank') AS source, account_label
      FROM transactions WHERE user_id = $1 ORDER BY date DESC, id DESC`,
     [userId],
   )
   return rows
+}
+
+export async function insertManualTransaction(params: {
+  userId: string
+  id: string
+  accountId: string
+  date: string
+  amount: number
+  description: string
+  category: string
+  accountLabel: string
+}): Promise<void> {
+  await query(
+    `INSERT INTO transactions (
+       user_id, id, account_id, date, amount, description, category, detail_category, pending, source, account_label
+     )
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, NULL, FALSE, 'manual', $8)`,
+    [
+      params.userId,
+      params.id,
+      params.accountId,
+      params.date,
+      params.amount,
+      params.description,
+      params.category,
+      params.accountLabel,
+    ],
+  )
+}
+
+export async function deleteManualTransactionForUser(
+  userId: string,
+  transactionId: string,
+): Promise<boolean> {
+  const { rowCount } = await query(
+    `DELETE FROM transactions
+     WHERE user_id = $1 AND id = $2 AND coalesce(source, 'bank') = 'manual'`,
+    [userId, transactionId],
+  )
+  return (rowCount ?? 0) > 0
+}
+
+export async function updateManualTransactionForUser(params: {
+  userId: string
+  transactionId: string
+  accountId: string
+  date: string
+  amount: number
+  description: string
+  category: string
+  accountLabel: string
+}): Promise<boolean> {
+  const { rowCount } = await query(
+    `UPDATE transactions SET
+       account_id = $3,
+       date = $4::date,
+       amount = $5,
+       description = $6,
+       category = $7,
+       account_label = $8
+     WHERE user_id = $1 AND id = $2 AND coalesce(source, 'bank') = 'manual'`,
+    [
+      params.userId,
+      params.transactionId,
+      params.accountId,
+      params.date,
+      params.amount,
+      params.description,
+      params.category,
+      params.accountLabel,
+    ],
+  )
+  return (rowCount ?? 0) > 0
 }
 
 export async function transactionBelongsToUser(

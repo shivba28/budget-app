@@ -164,6 +164,8 @@ export function Settings(): ReactElement {
   const [failedOp, setFailedOp] = useState<FailedOp>(null)
   const [failedDisconnectEnrollmentId, setFailedDisconnectEnrollmentId] =
     useState<string | null>(null)
+  const [manualAccountsRev, setManualAccountsRev] = useState(0)
+  const [newManualAccountName, setNewManualAccountName] = useState('')
 
   const settingsScrollRef = useRef<HTMLDivElement | null>(null)
   useRegisterNavScrollRoot(settingsScrollRef)
@@ -186,6 +188,18 @@ export function Settings(): ReactElement {
     window.addEventListener(storage.CATEGORIES_CHANGED_EVENT, on)
     return () => window.removeEventListener(storage.CATEGORIES_CHANGED_EVENT, on)
   }, [])
+
+  useEffect(() => {
+    const on = (): void => setManualAccountsRev((n) => n + 1)
+    window.addEventListener(storage.MANUAL_ACCOUNTS_CHANGED_EVENT, on)
+    return () =>
+      window.removeEventListener(storage.MANUAL_ACCOUNTS_CHANGED_EVENT, on)
+  }, [])
+
+  const manualAccountsList = useMemo(() => {
+    void manualAccountsRev
+    return storage.getManualAccounts()
+  }, [manualAccountsRev])
 
   useEffect(() => {
     void (async () => {
@@ -553,7 +567,7 @@ export function Settings(): ReactElement {
           </Card>
 
           <h2 className="page__subtitle">Account &amp; security</h2>
-          <Card className="shadow-xs">
+          <Card className="shadow-xs mb-4">
             <CardContent className="flex flex-col gap-4 py-4">
               <p className="text-sm text-muted-foreground">
                 Signed in as{' '}
@@ -701,7 +715,7 @@ export function Settings(): ReactElement {
             </CardContent>
           </Card>
 
-          <h2 className="page__subtitle mt-10">Categories</h2>
+          <h2 className="page__subtitle">Categories</h2>
           <Card className="shadow-xs">
             <CardContent className="flex flex-col gap-3 py-4">
               <p className="text-sm text-muted-foreground">
@@ -977,6 +991,80 @@ export function Settings(): ReactElement {
               </div>
             </div>
           )}
+
+          <Card className="mt-8 shadow-xs">
+            <CardContent className="flex flex-col gap-4 py-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Manual accounts
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground max-w-xl">
+                  Names for cards or accounts you track by hand (for example Apple Card). Use them
+                  when adding manual transactions. Removing an account here only affects the
+                  dropdown; past transactions keep their labels.
+                </p>
+              </div>
+              {manualAccountsList.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {manualAccountsList.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                        {a.name}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => {
+                          storage.saveManualAccounts(
+                            manualAccountsList.filter((x) => x.id !== a.id),
+                          )
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No manual accounts yet.</p>
+              )}
+              <form
+                className="flex flex-col gap-2 sm:flex-row sm:items-end"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const name = newManualAccountName.trim()
+                  if (!name) return
+                  storage.saveManualAccounts([
+                    ...storage.getManualAccounts(),
+                    {
+                      id: crypto.randomUUID(),
+                      name,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ])
+                  setNewManualAccountName('')
+                }}
+              >
+                <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm">
+                  <span className="text-muted-foreground">Add account</span>
+                  <Input
+                    value={newManualAccountName}
+                    onChange={(e) => setNewManualAccountName(e.target.value)}
+                    placeholder="e.g. Apple Card"
+                    autoComplete="off"
+                  />
+                </label>
+                <Button type="submit" variant="secondary" className="sm:shrink-0">
+                  Add
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </section>
       ) : (
         <section

@@ -10,13 +10,14 @@ import {
 } from '@/lib/transactionAllocation'
 import {
   formatCurrencyAmount,
-  formatTransactionAccountLabel,
+  formatTxAccountForDisplay,
   getCategoryLabel,
   getCategoryPillColor,
   persistCategoryOverride,
   resolveCanonicalDisplayCategory,
   resolveMyShare,
 } from '@/lib/api'
+import { deleteManualTransactionOnServer } from '@/lib/serverData'
 import { listCategoriesForTransactionFilters } from '@/lib/categoryCanonical'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,8 @@ type Props = {
   readonly initialPanel?: 'menu' | 'defer' | 'trip' | 'category' | 'share'
   readonly onClose: () => void
   readonly onApplied: () => void
+  /** Opens the add/edit sheet for this manual transaction (caller should close this sheet). */
+  readonly onRequestEditManual?: (tx: Transaction) => void
 }
 
 type Panel = 'menu' | 'defer' | 'trip' | 'newTrip' | 'category' | 'share'
@@ -38,6 +41,7 @@ export function TransactionAllocateSheet({
   initialPanel,
   onClose,
   onApplied,
+  onRequestEditManual,
 }: Props): ReactElement | null {
   const reduceMotion = useReducedMotion()
   const [rendered, setRendered] = useState(open)
@@ -90,7 +94,7 @@ export function TransactionAllocateSheet({
 
   const row = tx
   const accounts = storage.getAccounts() ?? []
-  const accountLabel = formatTransactionAccountLabel(row.accountId, accounts)
+  const accountLabel = formatTxAccountForDisplay(row, accounts)
   const isDeferred =
     typeof row.effectiveDate === 'string' &&
     row.effectiveDate.length >= 10 &&
@@ -245,6 +249,25 @@ export function TransactionAllocateSheet({
     }
   }
 
+  async function deleteManualTx(): Promise<void> {
+    if (saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const ok = await deleteManualTransactionOnServer(row.id)
+      if (!ok) {
+        setSaveError('Could not delete. Try again.')
+        return
+      }
+      const cur = storage.getTransactions() ?? []
+      storage.saveTransactions(cur.filter((t) => t.id !== row.id))
+      onApplied()
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <motion.div
       className="fixed inset-0 z-[250] flex flex-col justify-end p-0"
@@ -267,7 +290,7 @@ export function TransactionAllocateSheet({
       }}
     >
       <motion.div
-        className="max-h-[min(85vh,520px)] w-full overflow-y-auto overflow-x-hidden touch-pan-y rounded-t-2xl border border-border bg-background p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] shadow-lg"
+        className="max-h-[min(100vh,660px)] w-full overflow-y-auto overflow-x-hidden touch-pan-y rounded-t-2xl border border-border bg-background p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label="Allocate transaction"
@@ -381,6 +404,32 @@ export function TransactionAllocateSheet({
                 Clear allocation
               </Button>
             )}
+            {row.source === 'manual' ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  disabled={saving}
+                  onClick={() => {
+                    if (!onRequestEditManual || saving) return
+                    onRequestEditManual(row)
+                    onClose()
+                  }}
+                >
+                  Edit transaction
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full text-destructive hover:text-destructive"
+                  disabled={saving}
+                  onClick={() => void deleteManualTx()}
+                >
+                  Delete transaction
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

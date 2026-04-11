@@ -3,10 +3,15 @@ import express from 'express'
 import { requireUserSession, getUserId } from '../../auth/requireUser.js'
 import { dbEnabled } from '../../db/pool.js'
 import { migrateUserPayload } from '../../services/migratePayload.js'
+import { randomUUID } from 'node:crypto'
+import { upsertAccount } from '../../db/accountsRepo.js'
 import {
   allocateTransaction,
+  deleteManualTransactionForUser,
+  insertManualTransaction,
   listTransactionsForUser,
   transactionBelongsToUser,
+  updateManualTransactionForUser,
 } from '../../db/transactionsRepo.js'
 import {
   deleteCategoryForUser,
@@ -61,6 +66,8 @@ export function applyUserRoutes(app: Express): void {
     }
     try {
       const rows = await listTransactionsForUser(userId)
+      const src = (row: (typeof rows)[0]) =>
+        row.source === 'manual' ? 'manual' : 'bank'
       const transactions = rows.map((row) => ({
         id: row.id,
         accountId: row.account_id,
@@ -76,11 +83,238 @@ export function applyUserRoutes(app: Express): void {
         tripId: row.trip_id,
         myShare: row.my_share === null ? null : Number(row.my_share),
         pending: row.pending === true,
+        source: src(row),
+        ...(row.account_label != null && String(row.account_label).trim()
+          ? { accountLabel: String(row.account_label).trim() }
+          : {}),
       }))
       res.json({ transactions })
     } catch (e) {
       console.error('[user/transactions]', e)
       res.status(500).json({ error: 'Could not load transactions' })
+    }
+  })
+
+  r.post('/transactions', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const body = req.body as Record<string, unknown>
+    const description =
+      typeof body.description === 'string' ? body.description.trim() : ''
+    const dateRaw = typeof body.date === 'string' ? body.date.trim() : ''
+    const date = dateRaw.length >= 10 ? dateRaw.slice(0, 10) : ''
+    const categoryId =
+      typeof body.categoryId === 'string' ? body.categoryId.trim() : ''
+    const accountLabel =
+      typeof body.accountLabel === 'string' ? body.accountLabel.trim() : ''
+    const manualAccountId =
+      typeof body.manualAccountId === 'string' ? body.manualAccountId.trim() : ''
+    let amount = NaN
+    if (typeof body.amount === 'number' && Number.isFinite(body.amount)) {
+      amount = body.amount
+    } else if (typeof body.amount === 'string') {
+      amount = Number(body.amount)
+    }
+    if (!description || !date || date.length < 10) {
+      res.status(400).json({ error: 'description and date are required' })
+      return
+    }
+    if (!categoryId) {
+      res.status(400).json({ error: 'categoryId is required' })
+      return
+    }
+    if (!accountLabel || !manualAccountId) {
+      res.status(400).json({ error: 'accountLabel and manualAccountId are required' })
+      return
+    }
+    if (!Number.isFinite(amount) || amount === 0) {
+      res.status(400).json({ error: 'amount must be a non-zero number' })
+      return
+    }
+    const accountId = `manual-${manualAccountId}`
+    const id = randomUUID()
+    try {
+      await upsertAccount({
+        userId,
+        id: accountId,
+        name: accountLabel,
+        institution: 'Manual',
+        type: 'manual',
+        enrollmentId: null,
+      })
+      await insertManualTransaction({
+        userId,
+        id,
+        accountId,
+        date,
+        amount,
+        description,
+        category: categoryId,
+        accountLabel,
+      })
+      const rows = await listTransactionsForUser(userId)
+      const row = rows.find((r) => r.id === id)
+      if (!row) {
+        res.status(500).json({ error: 'Transaction not found after insert' })
+        return
+      }
+      const tx = {
+        id: row.id,
+        accountId: row.account_id,
+        date:
+          typeof row.date === 'string'
+            ? row.date.slice(0, 10)
+            : String(row.date).slice(0, 10),
+        amount: Number(row.amount),
+        categoryId: row.category ?? 'other',
+        description: row.description ?? '',
+        detailCategory: row.detail_category ?? undefined,
+        effectiveDate: row.effective_date,
+        tripId: row.trip_id,
+        myShare: row.my_share === null ? null : Number(row.my_share),
+        pending: row.pending === true,
+        source: 'manual' as const,
+        accountLabel:
+          row.account_label != null && String(row.account_label).trim()
+            ? String(row.account_label).trim()
+            : accountLabel,
+      }
+      res.status(201).json({ transaction: tx })
+    } catch (e) {
+      console.error('[user/transactions POST]', e)
+      res.status(500).json({ error: 'Could not create transaction' })
+    }
+  })
+
+  r.patch('/transactions/:id', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const txId = req.params.id
+    if (!txId) {
+      res.status(400).json({ error: 'Missing id' })
+      return
+    }
+    const body = req.body as Record<string, unknown>
+    const description =
+      typeof body.description === 'string' ? body.description.trim() : ''
+    const dateRaw = typeof body.date === 'string' ? body.date.trim() : ''
+    const date = dateRaw.length >= 10 ? dateRaw.slice(0, 10) : ''
+    const categoryId =
+      typeof body.categoryId === 'string' ? body.categoryId.trim() : ''
+    const accountLabel =
+      typeof body.accountLabel === 'string' ? body.accountLabel.trim() : ''
+    const manualAccountId =
+      typeof body.manualAccountId === 'string' ? body.manualAccountId.trim() : ''
+    let amount = NaN
+    if (typeof body.amount === 'number' && Number.isFinite(body.amount)) {
+      amount = body.amount
+    } else if (typeof body.amount === 'string') {
+      amount = Number(body.amount)
+    }
+    if (!description || !date || date.length < 10) {
+      res.status(400).json({ error: 'description and date are required' })
+      return
+    }
+    if (!categoryId) {
+      res.status(400).json({ error: 'categoryId is required' })
+      return
+    }
+    if (!accountLabel || !manualAccountId) {
+      res.status(400).json({ error: 'accountLabel and manualAccountId are required' })
+      return
+    }
+    if (!Number.isFinite(amount) || amount === 0) {
+      res.status(400).json({ error: 'amount must be a non-zero number' })
+      return
+    }
+    const accountId = `manual-${manualAccountId}`
+    try {
+      await upsertAccount({
+        userId,
+        id: accountId,
+        name: accountLabel,
+        institution: 'Manual',
+        type: 'manual',
+        enrollmentId: null,
+      })
+      const ok = await updateManualTransactionForUser({
+        userId,
+        transactionId: txId,
+        accountId,
+        date,
+        amount,
+        description,
+        category: categoryId,
+        accountLabel,
+      })
+      if (!ok) {
+        res.status(404).json({ error: 'Not found or not a manual transaction' })
+        return
+      }
+      const rows = await listTransactionsForUser(userId)
+      const row = rows.find((r) => r.id === txId)
+      if (!row) {
+        res.status(500).json({ error: 'Transaction not found after update' })
+        return
+      }
+      const tx = {
+        id: row.id,
+        accountId: row.account_id,
+        date:
+          typeof row.date === 'string'
+            ? row.date.slice(0, 10)
+            : String(row.date).slice(0, 10),
+        amount: Number(row.amount),
+        categoryId: row.category ?? 'other',
+        description: row.description ?? '',
+        detailCategory: row.detail_category ?? undefined,
+        effectiveDate: row.effective_date,
+        tripId: row.trip_id,
+        myShare: row.my_share === null ? null : Number(row.my_share),
+        pending: row.pending === true,
+        source: 'manual' as const,
+        accountLabel:
+          row.account_label != null && String(row.account_label).trim()
+            ? String(row.account_label).trim()
+            : accountLabel,
+      }
+      res.json({ transaction: tx })
+    } catch (e) {
+      console.error('[user/transactions PATCH]', e)
+      res.status(500).json({ error: 'Could not update transaction' })
+    }
+  })
+
+  r.delete('/transactions/:id', async (req: Request, res: Response) => {
+    if (!mustDb(res)) return
+    const userId = getUserId(req)
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' })
+      return
+    }
+    const txId = req.params.id
+    if (!txId) {
+      res.status(400).json({ error: 'Missing id' })
+      return
+    }
+    try {
+      const ok = await deleteManualTransactionForUser(userId, txId)
+      if (!ok) {
+        res.status(404).json({ error: 'Not found or not a manual transaction' })
+        return
+      }
+      res.status(204).send()
+    } catch (e) {
+      console.error('[user/transactions DELETE]', e)
+      res.status(500).json({ error: 'Could not delete transaction' })
     }
   })
 
