@@ -7,6 +7,7 @@ import { listAllCategories } from '@/lib/categoriesList'
 import { MONTHLY_BUDGET_DEFAULTS_BY_CATEGORY } from '../constants/monthlyBudgetDefaults'
 import type { Account } from '../lib/domain'
 import { ErrorRetry } from '../components/ErrorRetry'
+import { SettingsLoadingSkeleton } from '@/components/SettingsLoadingSkeleton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
@@ -166,6 +167,7 @@ export function Settings(): ReactElement {
     useState<string | null>(null)
   const [manualAccountsRev, setManualAccountsRev] = useState(0)
   const [newManualAccountName, setNewManualAccountName] = useState('')
+  const [categoriesBootstrapDone, setCategoriesBootstrapDone] = useState(false)
 
   const settingsScrollRef = useRef<HTMLDivElement | null>(null)
   useRegisterNavScrollRoot(settingsScrollRef)
@@ -203,8 +205,13 @@ export function Settings(): ReactElement {
 
   useEffect(() => {
     void (async () => {
-      const cats = await fetchCategoriesFromServer()
-      if (cats) storage.saveCategories(cats)
+      try {
+        const cats = await fetchCategoriesFromServer()
+        if (cats) storage.saveCategories(cats)
+        setCategoriesTick((n) => n + 1)
+      } finally {
+        setCategoriesBootstrapDone(true)
+      }
     })()
   }, [])
 
@@ -475,6 +482,10 @@ export function Settings(): ReactElement {
     setBudgetToast('Budget reset')
     if (budgetToastTimerRef.current !== null) window.clearTimeout(budgetToastTimerRef.current)
     budgetToastTimerRef.current = window.setTimeout(() => setBudgetToast(null), 2500)
+  }
+
+  if (!categoriesBootstrapDone) {
+    return <SettingsLoadingSkeleton scrollRef={settingsScrollRef} />
   }
 
   return (

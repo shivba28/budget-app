@@ -39,6 +39,7 @@ import {
 } from '@/constants/navFabEvents'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
 import { IS_LOCAL_STORAGE_MODE } from '@/lib/isLocalDev'
+import { PhantomUiBlock } from '@/components/PhantomUiBlock'
 import { cn } from '@/lib/utils'
 import './Page.css'
 import './Transactions.css'
@@ -51,24 +52,21 @@ function TransactionsSkeleton({ label }: { readonly label?: string }): ReactElem
           {label}
         </p>
       ) : null}
-      <div className="animate-pulse space-y-3">
-        <div className="h-10 rounded-xl border border-border bg-muted/30" />
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            // eslint-disable-next-line react/no-array-index-key
-            key={i}
-            className="rounded-xl border border-border bg-background px-4 py-3 shadow-xs"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="h-3 w-24 rounded bg-muted/60" />
-                <div className="h-4 w-3/4 rounded bg-muted" />
-              </div>
-              <div className="h-4 w-20 rounded bg-muted/70" />
+      <PhantomUiBlock loading count={8} countGap={10} className="block" reveal={0.2}>
+        <div className="rounded-xl border border-border bg-background px-4 py-3 shadow-xs">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <span className="block text-xs font-medium text-muted-foreground">
+                January 2026
+              </span>
+              <span className="block font-medium leading-snug">
+                Transaction description placeholder
+              </span>
             </div>
+            <span className="shrink-0 tabular-nums font-medium">$99.00</span>
           </div>
-        ))}
-      </div>
+        </div>
+      </PhantomUiBlock>
     </div>
   )
 }

@@ -30,6 +30,16 @@
   --font-mono: var(--font-mono);
 }
 
+phantom-ui {
+  --shimmer-bg: color-mix(in srgb, var(--muted) 72%, transparent);
+  --shimmer-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.dark phantom-ui {
+  --shimmer-bg: color-mix(in srgb, var(--muted) 50%, transparent);
+  --shimmer-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
 :root {
   --radius: 0.75rem;
   --font-sans: 'Outfit', system-ui, -apple-system, sans-serif;

@@ -14,6 +14,7 @@ import {
 } from '@/lib/insightsCommitments'
 import { InsightsCommitmentBlocks } from '@/components/InsightsCommitmentBlocks'
 import { InsightsDashboard } from '@/components/InsightsDashboard'
+import { InsightsLoadingSkeleton } from '@/components/InsightsLoadingSkeleton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useRegisterNavScrollRoot } from '@/contexts/NavScrollContext'
@@ -72,27 +73,34 @@ export function Insights(): ReactElement {
   const allTransactions = useMemo(() => {
     void exclusionRev
     void bankSyncRev
-    return filterTransactionsByVisibleAccounts(storage.getTransactions() ?? [])
+    const raw = storage.getTransactions()
+    if (raw === null) return null
+    return filterTransactionsByVisibleAccounts(raw)
   }, [exclusionRev, bankSyncRev])
 
-  const hasGlobalData = allTransactions.length > 0
+  const insightsDataLoading = allTransactions === null
+
+  const hasGlobalData = (allTransactions?.length ?? 0) > 0
 
   const monthLabel = formatCalendarMonthLabel(cursor.year, cursor.month)
   const monthTxs = useMemo(
     () =>
-      filterTransactionsForCalendarMonth(
-        allTransactions,
-        cursor.year,
-        cursor.month,
-      ),
+      allTransactions === null
+        ? []
+        : filterTransactionsForCalendarMonth(
+            allTransactions,
+            cursor.year,
+            cursor.month,
+          ),
     [allTransactions, cursor.year, cursor.month],
   )
   const hasAnyTransactionsInMonth = monthTxs.length > 0
 
   const insights = useMemo(() => {
+    const txs = allTransactions ?? []
     const mb = storage.getMonthlyBudgetsStored()
     return analyzeTransactions({
-      transactions: allTransactions,
+      transactions: txs,
       categoryOverrides: storage.getCategoryOverrides(),
       focusYear: cursor.year,
       focusMonth: cursor.month,
@@ -104,12 +112,13 @@ export function Insights(): ReactElement {
 
   const commitment = useMemo(() => {
     void tripsRev
+    const txs = allTransactions ?? []
     const trips = storage.getTrips()
     const ref = new Date()
     return {
-      upcoming: upcomingCommittedSpendByMonth(allTransactions, trips, ref),
-      timeline: monthTimelineCommittedSpend(allTransactions, trips, ref),
-      tripSummaries: buildTripSummaries(allTransactions, trips),
+      upcoming: upcomingCommittedSpendByMonth(txs, trips, ref),
+      timeline: monthTimelineCommittedSpend(txs, trips, ref),
+      tripSummaries: buildTripSummaries(txs, trips),
     }
   }, [allTransactions, bankSyncRev, tripsRev])
 
@@ -119,6 +128,10 @@ export function Insights(): ReactElement {
 
   function goNext(): void {
     setCursor((c) => shiftCalendarMonth(c.year, c.month, 1))
+  }
+
+  if (insightsDataLoading) {
+    return <InsightsLoadingSkeleton scrollRef={scrollRef} />
   }
 
   if (!hasGlobalData) {

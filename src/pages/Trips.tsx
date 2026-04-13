@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Plane } from 'lucide-react'
 import { AddTripSheet } from '@/components/AddTripSheet'
+import { TripsLoadingSkeleton } from '@/components/TripsLoadingSkeleton'
 import { filterTransactionsByVisibleAccounts, formatCurrencyAmount } from '@/lib/api'
 import * as storage from '@/lib/storage'
 import { buildTripSummaries } from '@/lib/insightsCommitments'
@@ -23,6 +24,7 @@ export function Trips(): ReactElement {
   const [rev, setRev] = useState(0)
   const [bankRev, setBankRev] = useState(0)
   const [addTripSheetOpen, setAddTripSheetOpen] = useState(false)
+  const [tripsHydrated, setTripsHydrated] = useState(false)
 
   useEffect(() => {
     const on = (): void => setRev((n) => n + 1)
@@ -40,11 +42,15 @@ export function Trips(): ReactElement {
 
   useEffect(() => {
     void (async () => {
-      const { fetchTripsFromServer } = await import('@/lib/serverData')
-      const t = await fetchTripsFromServer()
-      if (t) {
-        storage.saveTrips(t)
-        setRev((n) => n + 1)
+      try {
+        const { fetchTripsFromServer } = await import('@/lib/serverData')
+        const t = await fetchTripsFromServer()
+        if (t) {
+          storage.saveTrips(t)
+          setRev((n) => n + 1)
+        }
+      } finally {
+        setTripsHydrated(true)
       }
     })()
   }, [])
@@ -100,6 +106,10 @@ export function Trips(): ReactElement {
   )
 
   return (
+    <>
+      {!tripsHydrated ? (
+        <TripsLoadingSkeleton scrollRef={scrollRef} />
+      ) : (
     <main className="page page--fill page--summary summary-root">
       <div className="summary-top">
         <div className="summary-head">
@@ -178,6 +188,8 @@ export function Trips(): ReactElement {
         })}
       </div>
 
+    </main>
+      )}
       <AddTripSheet
         open={addTripSheetOpen}
         onClose={() => setAddTripSheetOpen(false)}
@@ -185,6 +197,6 @@ export function Trips(): ReactElement {
           setRev((n) => n + 1)
         }}
       />
-    </main>
+    </>
   )
 }

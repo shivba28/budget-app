@@ -1,52 +1,64 @@
 import type { ReactElement } from 'react'
+import { PhantomUiBlock } from '@/components/PhantomUiBlock'
 
 export function AppShellTransactionsSkeleton(): ReactElement {
   return (
     <div className="app-shell">
       <div className="page page--fill page--transactions tx-page">
-        <div className="tx-sticky">
-          <div className="tx-screen-head">
-            <div className="min-w-0">
-              <div className="h-6 w-36 animate-pulse rounded bg-muted/70" />
-            </div>
-            <div className="tx-screen-head__trailing">
-              <div className="h-9 w-20 animate-pulse rounded-md bg-muted/60" />
-            </div>
-          </div>
-
-          <div className="tx-toolbar">
-            <div className="tx-toolbar__search-row">
-              <div className="tx-toolbar__field tx-toolbar__field--search">
-                <div className="mb-1 h-3 w-16 animate-pulse rounded bg-muted/60" />
-                <div className="h-9 w-full animate-pulse rounded-xl border border-border bg-muted/30" />
+        <PhantomUiBlock loading className="block" reveal={0.25}>
+          <div className="tx-sticky">
+            <div className="tx-screen-head">
+              <div className="min-w-0">
+                <span className="block text-lg font-semibold">Transactions</span>
               </div>
-              <div className="h-9 w-24 animate-pulse rounded-xl border border-border bg-muted/30" />
+              <div className="tx-screen-head__trailing">
+                <span className="inline-flex h-9 min-w-[5rem] items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium">
+                  Sync
+                </span>
+              </div>
+            </div>
+
+            <div className="tx-toolbar">
+              <div className="tx-toolbar__search-row">
+                <div className="tx-toolbar__field tx-toolbar__field--search">
+                  <span className="tx-toolbar__label mb-1 block">Search</span>
+                  <span className="flex h-9 w-full items-center rounded-xl border border-border bg-background px-3 text-sm text-muted-foreground">
+                    Search transactions
+                  </span>
+                </div>
+                <span className="flex h-9 min-w-[6rem] items-center justify-center rounded-xl border border-border bg-background text-sm">
+                  Filters
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        </PhantomUiBlock>
 
         <div className="tx-scroll">
-          <div className="animate-pulse space-y-3 py-4">
-            <div className="mx-2 h-10 rounded-xl border border-border bg-muted/20" />
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div
-                // eslint-disable-next-line react/no-array-index-key
-                key={i}
-                className="mx-2 rounded-xl border border-border bg-background px-4 py-3 shadow-xs"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="h-3 w-32 rounded bg-muted/60" />
-                    <div className="h-4 w-4/5 rounded bg-muted" />
-                  </div>
-                  <div className="h-4 w-20 rounded bg-muted/70" />
-                </div>
+          <PhantomUiBlock
+            loading
+            count={10}
+            countGap={10}
+            className="block py-4"
+            reveal={0.2}
+          >
+            <div className="mx-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-background px-4 py-3 shadow-xs">
+              <div className="min-w-0 flex-1 space-y-2">
+                <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  March 2026
+                </span>
+                <span className="block font-medium leading-snug">
+                  Merchant name placeholder
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  2026-03-15 · Food & dining
+                </span>
               </div>
-            ))}
-          </div>
+              <span className="shrink-0 tabular-nums font-medium">$123.45</span>
+            </div>
+          </PhantomUiBlock>
         </div>
       </div>
     </div>
   )
 }
-

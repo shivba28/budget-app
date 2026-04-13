@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { AuthLoadingLayout } from '@/components/AuthLoadingLayout'
 import { useAuth } from '@/contexts/AuthContext'
 import { startGoogleSignIn } from '@/lib/syncApi'
 import './Page.css'
@@ -16,11 +17,7 @@ export function LoginPage(): ReactElement {
   const { status, lastSyncMessage, clearSyncMessage } = useAuth()
 
   if (status === 'loading') {
-    return (
-      <main className="page page--fill flex flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </main>
-    )
+    return <AuthLoadingLayout />
   }
 
   if (status === 'ready') {

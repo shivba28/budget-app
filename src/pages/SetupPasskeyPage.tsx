@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { AuthLoadingLayout } from '@/components/AuthLoadingLayout'
 import { useAuth } from '@/contexts/AuthContext'
 import { registerPasskeyFlow } from '@/lib/passkeyFlow'
 import { webAuthnSupported } from '@/lib/webauthnClient'
@@ -27,11 +28,7 @@ export function SetupPasskeyPage(): ReactElement {
   }, [refresh])
 
   if (status === 'loading') {
-    return (
-      <main className="page page--fill flex flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </main>
-    )
+    return <AuthLoadingLayout />
   }
 
   if (status === 'unauthenticated') {
