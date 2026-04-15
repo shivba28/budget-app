@@ -29,3 +29,4 @@ backend/
 server/
 frontend/
 certs/
+.cursor/

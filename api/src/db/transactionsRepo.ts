@@ -13,6 +13,7 @@ export type DbTransactionRow = {
   category: string | null
   detail_category: string | null
   pending: boolean | null
+  user_confirmed: boolean | null
   source: string | null
   account_label: string | null
 }
@@ -30,9 +31,9 @@ export async function upsertTransactionFromTeller(params: {
 }): Promise<void> {
   await query(
     `INSERT INTO transactions (
-       user_id, id, account_id, date, amount, description, category, detail_category, pending
+       user_id, id, account_id, date, amount, description, category, detail_category, pending, user_confirmed
      )
-     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, FALSE)
      ON CONFLICT (user_id, id) DO UPDATE SET
        account_id = EXCLUDED.account_id,
        date = EXCLUDED.date,
@@ -53,6 +54,21 @@ export async function upsertTransactionFromTeller(params: {
       params.pending,
     ],
   )
+}
+
+/** Sets user_confirmed; used when the user marks a pending bank charge as posted. */
+export async function setTransactionUserConfirmed(params: {
+  userId: string
+  transactionId: string
+  userConfirmed: boolean
+}): Promise<boolean> {
+  const { rowCount } = await query(
+    `UPDATE transactions
+     SET user_confirmed = $3
+     WHERE user_id = $1 AND id = $2`,
+    [params.userId, params.transactionId, params.userConfirmed],
+  )
+  return (rowCount ?? 0) > 0
 }
 
 export async function getAllocationsForIds(
@@ -83,6 +99,7 @@ export async function listTransactionsForUser(userId: string): Promise<DbTransac
   const { rows } = await query<DbTransactionRow>(
     `SELECT user_id, id, account_id, date::text AS date, effective_date::text AS effective_date,
             trip_id, my_share::text AS my_share, amount::text AS amount, description, category, detail_category, pending,
+            user_confirmed,
             coalesce(source, 'bank') AS source, account_label
      FROM transactions WHERE user_id = $1 ORDER BY date DESC, id DESC`,
     [userId],
@@ -102,9 +119,9 @@ export async function insertManualTransaction(params: {
 }): Promise<void> {
   await query(
     `INSERT INTO transactions (
-       user_id, id, account_id, date, amount, description, category, detail_category, pending, source, account_label
+       user_id, id, account_id, date, amount, description, category, detail_category, pending, user_confirmed, source, account_label
      )
-     VALUES ($1, $2, $3, $4::date, $5, $6, $7, NULL, FALSE, 'manual', $8)`,
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, NULL, FALSE, FALSE, 'manual', $8)`,
     [
       params.userId,
       params.id,

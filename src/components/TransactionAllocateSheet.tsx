@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Calendar, DollarSign, Plane, Tag } from 'lucide-react'
+import { Calendar, CheckCircle2, DollarSign, Plane, Tag } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { Transaction, Trip } from '@/lib/domain'
 import * as storage from '@/lib/storage'
@@ -17,7 +17,10 @@ import {
   resolveCanonicalDisplayCategory,
   resolveMyShare,
 } from '@/lib/api'
-import { deleteManualTransactionOnServer } from '@/lib/serverData'
+import {
+  confirmTransactionPostedOnServer,
+  deleteManualTransactionOnServer,
+} from '@/lib/serverData'
 import { listCategoriesForTransactionFilters } from '@/lib/categoryCanonical'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -249,6 +252,39 @@ export function TransactionAllocateSheet({
     }
   }
 
+  async function markBankPendingAsPosted(): Promise<void> {
+    if (saving) return
+    if (row.pending !== true) return
+    const prev = storage.getTransactions() ?? []
+    const optimistic = prev.map((t) =>
+      t.id === row.id ? { ...t, userConfirmed: true as const } : t,
+    )
+    storage.saveTransactions(optimistic)
+    onApplied()
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const updated = await confirmTransactionPostedOnServer(row.id)
+      if (!updated) {
+        storage.saveTransactions(prev)
+        onApplied()
+        setSaveError('Could not save. Try again.')
+        return
+      }
+      const cur = storage.getTransactions() ?? []
+      const merged = cur.map((t) => (t.id === row.id ? updated : t))
+      storage.saveTransactions(merged)
+      onApplied()
+      onClose()
+    } catch (e) {
+      storage.saveTransactions(prev)
+      onApplied()
+      setSaveError(e instanceof Error ? e.message : 'Could not save. Try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function deleteManualTx(): Promise<void> {
     if (saving) return
     setSaveError(null)
@@ -390,6 +426,18 @@ export function TransactionAllocateSheet({
               <Tag className="mr-2 size-4 shrink-0" aria-hidden />
               Change category
             </Button>
+            {row.pending === true ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-start"
+                disabled={saving}
+                onClick={() => void markBankPendingAsPosted()}
+              >
+                <CheckCircle2 className="mr-2 size-4 shrink-0" aria-hidden />
+                Mark as Posted
+              </Button>
+            ) : null}
             {(row.tripId != null ||
               (typeof row.effectiveDate === 'string' &&
                 row.effectiveDate.length >= 7) ||

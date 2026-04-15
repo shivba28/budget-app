@@ -233,6 +233,11 @@ export function applyTellerRoutes(app: Express): void {
       // Pull newest-first, then paginate older pages until we hit stopAtId (quick sync),
       // or Teller returns a short page. Up to two waves of pages if the first hits the cap
       // (same as “ping twice” for deep history).
+      //
+      // IMPORTANT: Teller sometimes does not flip pending -> posted for existing ids during
+      // incremental sync, which can leave pending rows stuck until reconnect. To keep recent
+      // pending statuses fresh, always re-fetch the last ~30 days on every sync, ignoring
+      // stopAtId within that window only.
       const PAGE_SIZE = 200
       const MAX_PAGES_PER_WAVE = 30
       const MAX_WAVES = 2
@@ -240,8 +245,23 @@ export function applyTellerRoutes(app: Express): void {
       let fromId: string | null = null
       let newestId: string | null = null
       let hitStop = false
+      let oldestDateSeen: string | null = null
       /** True only if the last wave ended on a full page at the per-wave cap (more may exist upstream). */
       let truncatedByPageCap = false
+
+      const refreshMinIso = (() => {
+        const d = new Date()
+        d.setDate(d.getDate() - 30)
+        return d.toISOString().slice(0, 10)
+      })()
+
+      const txIsoDate = (raw: unknown): string | null => {
+        if (!raw || typeof raw !== 'object') return null
+        const r = raw as Record<string, unknown>
+        const ds = r.date
+        if (typeof ds !== 'string' || ds.length < 10) return null
+        return ds.slice(0, 10)
+      }
 
       for (let wave = 0; wave < MAX_WAVES && !hitStop; wave++) {
         let waveTruncated = false
@@ -260,9 +280,17 @@ export function applyTellerRoutes(app: Express): void {
             const r = raw as Record<string, unknown>
             const id = typeof r.id === 'string' ? r.id : null
             if (id && newestId === null) newestId = id
+            const iso = txIsoDate(raw)
+            if (iso && (oldestDateSeen === null || iso < oldestDateSeen)) {
+              oldestDateSeen = iso
+            }
+            // Only honor stopAtId once we've fetched past the recent refresh window.
             if (stopAtId && id === stopAtId) {
-              hitStop = true
-              break
+              const allowStop = oldestDateSeen !== null && oldestDateSeen < refreshMinIso
+              if (allowStop) {
+                hitStop = true
+                break
+              }
             }
             merged.push(raw)
           }

@@ -56,6 +56,9 @@ function mapServerTransaction(row: Record<string, unknown>): Transaction | null 
   const pr = row.pending
   const pending = pr === true || pr === 'true'
 
+  const uc = row.userConfirmed !== undefined ? row.userConfirmed : row.user_confirmed
+  const userConfirmed = uc === true || uc === 'true'
+
   const srcRaw = row.source
   const source: 'bank' | 'manual' | undefined =
     srcRaw === 'manual' ? 'manual' : srcRaw === 'bank' ? 'bank' : undefined
@@ -75,6 +78,7 @@ function mapServerTransaction(row: Record<string, unknown>): Transaction | null 
     ...(accountLabel !== undefined ? { accountLabel } : {}),
     ...(myShare !== undefined ? { myShare } : {}),
     ...(pending ? { pending: true as const } : {}),
+    ...(userConfirmed ? { userConfirmed: true as const } : {}),
   }
   if (effectiveDate !== undefined) {
     ;(base as Transaction & { effectiveDate?: string | null }).effectiveDate =
@@ -456,6 +460,28 @@ export async function createManualTransactionOnServer(input: {
     if (!row || typeof row !== 'object') return null
     const t = mapServerTransaction(row as Record<string, unknown>)
     return t
+  } catch {
+    return null
+  }
+}
+
+export async function confirmTransactionPostedOnServer(
+  transactionId: string,
+): Promise<Transaction | null> {
+  if (IS_LOCAL_STORAGE_MODE) {
+    const { confirmTransactionPostedOnLocal } = await import(
+      '@/lib/localStorageBackend'
+    )
+    return confirmTransactionPostedOnLocal(transactionId)
+  }
+  try {
+    const { data } = await userDataApi.patch<{ transaction?: unknown }>(
+      `/transactions/${encodeURIComponent(transactionId)}`,
+      { userConfirmed: true },
+    )
+    const row = data?.transaction
+    if (!row || typeof row !== 'object') return null
+    return mapServerTransaction(row as Record<string, unknown>)
   } catch {
     return null
   }

@@ -131,6 +131,9 @@ ALTER TABLE transactions
 
 ALTER TABLE transactions
   ADD COLUMN IF NOT EXISTS account_label TEXT;
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS user_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
 `
 
 let migrated = false

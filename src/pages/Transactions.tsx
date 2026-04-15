@@ -196,6 +196,12 @@ export function Transactions(): ReactElement {
   const [addSheetOpen, setAddSheetOpen] = useState(false)
   const [editTx, setEditTx] = useState<Transaction | null>(null)
 
+  /** Keep the open allocate sheet in sync after optimistic cache updates. */
+  const sheetTxLive = useMemo(() => {
+    if (!sheetTx) return null
+    return rows.find((r) => r.id === sheetTx.id) ?? sheetTx
+  }, [sheetTx, rows])
+
   const scrollRef = useRef<HTMLDivElement>(null)
   useRegisterNavScrollRoot(scrollRef)
 
@@ -385,9 +391,12 @@ export function Transactions(): ReactElement {
     return (storage.getAccounts() ?? []).length > 0
   }, [accountsTick])
 
-  /** Pending charges are kept in cache but omitted from this page until they post. */
+  /** Hide pending unless the user marked them posted (still tagged as pending until bank clears). */
   const rowsForTable = useMemo(
-    () => rows.filter((tx) => tx.pending !== true),
+    () =>
+      rows.filter(
+        (tx) => tx.pending !== true || tx.userConfirmed === true,
+      ),
     [rows],
   )
 
@@ -993,9 +1002,16 @@ export function Transactions(): ReactElement {
                         onClick={() => openTxSheet(tx, 'menu')}
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                            {tx.description}
-                          </span>
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {tx.description}
+                            </span>
+                            {tx.pending === true ? (
+                              <span className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-100">
+                                Pending
+                              </span>
+                            ) : null}
+                          </div>
                           <span className="max-w-[44%] shrink-0 truncate text-xs text-muted-foreground">
                             {formatTxAccountForDisplay(tx, accountsForTable)}
                           </span>
@@ -1036,7 +1052,7 @@ export function Transactions(): ReactElement {
       </div>
 
       <TransactionAllocateSheet
-        tx={sheetTx}
+        tx={sheetTxLive}
         open={sheetTx !== null}
         initialPanel={sheetPanel}
         onClose={() => setSheetTx(null)}

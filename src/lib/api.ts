@@ -331,6 +331,10 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
   const pending =
     r.status === 'pending' || r.pending === true || r.pending === 'true'
 
+  const ucRaw = r.userConfirmed !== undefined ? r.userConfirmed : r.user_confirmed
+  const userConfirmed =
+    ucRaw === true || ucRaw === 'true'
+
   const srcRaw = r.source
   const source: 'bank' | 'manual' | undefined =
     srcRaw === 'manual'
@@ -355,6 +359,7 @@ function mapRawTransaction(raw: unknown, fallbackAccountId: string): Transaction
     ...(accountLabel !== undefined ? { accountLabel } : {}),
     ...(myShare !== undefined ? { myShare } : {}),
     ...(pending ? { pending: true as const } : {}),
+    ...(userConfirmed ? { userConfirmed: true as const } : {}),
   }
   if (effectiveDate !== undefined) {
     ;(base as Transaction & { effectiveDate?: string | null }).effectiveDate =

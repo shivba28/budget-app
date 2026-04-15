@@ -10,8 +10,10 @@ import {
   deleteManualTransactionForUser,
   insertManualTransaction,
   listTransactionsForUser,
+  setTransactionUserConfirmed,
   transactionBelongsToUser,
   updateManualTransactionForUser,
+  type DbTransactionRow,
 } from '../../db/transactionsRepo.js'
 import {
   deleteCategoryForUser,
@@ -35,6 +37,41 @@ function mustDb(res: Response): boolean {
     return false
   }
   return true
+}
+
+function apiTransactionFromDbRow(
+  row: DbTransactionRow,
+  accountLabelFallback?: string,
+): Record<string, unknown> {
+  const src = row.source === 'manual' ? 'manual' : 'bank'
+  const accountLabelFromRow =
+    row.account_label != null && String(row.account_label).trim()
+      ? String(row.account_label).trim()
+      : undefined
+  const accountLabel =
+    accountLabelFromRow ??
+    (accountLabelFallback !== undefined && accountLabelFallback.trim()
+      ? accountLabelFallback.trim()
+      : undefined)
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    date:
+      typeof row.date === 'string'
+        ? row.date.slice(0, 10)
+        : String(row.date).slice(0, 10),
+    amount: Number(row.amount),
+    categoryId: row.category ?? 'other',
+    description: row.description ?? '',
+    detailCategory: row.detail_category ?? undefined,
+    effectiveDate: row.effective_date,
+    tripId: row.trip_id,
+    myShare: row.my_share === null ? null : Number(row.my_share),
+    pending: row.pending === true,
+    userConfirmed: row.user_confirmed === true,
+    source: src,
+    ...(accountLabel !== undefined ? { accountLabel } : {}),
+  }
 }
 
 export function applyUserRoutes(app: Express): void {
@@ -66,28 +103,7 @@ export function applyUserRoutes(app: Express): void {
     }
     try {
       const rows = await listTransactionsForUser(userId)
-      const src = (row: (typeof rows)[0]) =>
-        row.source === 'manual' ? 'manual' : 'bank'
-      const transactions = rows.map((row) => ({
-        id: row.id,
-        accountId: row.account_id,
-        date:
-          typeof row.date === 'string'
-            ? row.date.slice(0, 10)
-            : String(row.date).slice(0, 10),
-        amount: Number(row.amount),
-        categoryId: row.category ?? 'other',
-        description: row.description ?? '',
-        detailCategory: row.detail_category ?? undefined,
-        effectiveDate: row.effective_date,
-        tripId: row.trip_id,
-        myShare: row.my_share === null ? null : Number(row.my_share),
-        pending: row.pending === true,
-        source: src(row),
-        ...(row.account_label != null && String(row.account_label).trim()
-          ? { accountLabel: String(row.account_label).trim() }
-          : {}),
-      }))
+      const transactions = rows.map((row) => apiTransactionFromDbRow(row))
       res.json({ transactions })
     } catch (e) {
       console.error('[user/transactions]', e)
@@ -162,27 +178,7 @@ export function applyUserRoutes(app: Express): void {
         res.status(500).json({ error: 'Transaction not found after insert' })
         return
       }
-      const tx = {
-        id: row.id,
-        accountId: row.account_id,
-        date:
-          typeof row.date === 'string'
-            ? row.date.slice(0, 10)
-            : String(row.date).slice(0, 10),
-        amount: Number(row.amount),
-        categoryId: row.category ?? 'other',
-        description: row.description ?? '',
-        detailCategory: row.detail_category ?? undefined,
-        effectiveDate: row.effective_date,
-        tripId: row.trip_id,
-        myShare: row.my_share === null ? null : Number(row.my_share),
-        pending: row.pending === true,
-        source: 'manual' as const,
-        accountLabel:
-          row.account_label != null && String(row.account_label).trim()
-            ? String(row.account_label).trim()
-            : accountLabel,
-      }
+      const tx = apiTransactionFromDbRow(row, accountLabel)
       res.status(201).json({ transaction: tx })
     } catch (e) {
       console.error('[user/transactions POST]', e)
@@ -203,6 +199,31 @@ export function applyUserRoutes(app: Express): void {
       return
     }
     const body = req.body as Record<string, unknown>
+    if (body.userConfirmed === true) {
+      const okOwner = await transactionBelongsToUser(userId, txId)
+      if (!okOwner) {
+        res.status(404).json({ error: 'Not found' })
+        return
+      }
+      try {
+        await setTransactionUserConfirmed({
+          userId,
+          transactionId: txId,
+          userConfirmed: true,
+        })
+        const rows = await listTransactionsForUser(userId)
+        const row = rows.find((r) => r.id === txId)
+        if (!row) {
+          res.status(500).json({ error: 'Transaction not found after update' })
+          return
+        }
+        res.json({ transaction: apiTransactionFromDbRow(row) })
+      } catch (e) {
+        console.error('[user/transactions PATCH userConfirmed]', e)
+        res.status(500).json({ error: 'Could not update transaction' })
+      }
+      return
+    }
     const description =
       typeof body.description === 'string' ? body.description.trim() : ''
     const dateRaw = typeof body.date === 'string' ? body.date.trim() : ''
@@ -265,27 +286,7 @@ export function applyUserRoutes(app: Express): void {
         res.status(500).json({ error: 'Transaction not found after update' })
         return
       }
-      const tx = {
-        id: row.id,
-        accountId: row.account_id,
-        date:
-          typeof row.date === 'string'
-            ? row.date.slice(0, 10)
-            : String(row.date).slice(0, 10),
-        amount: Number(row.amount),
-        categoryId: row.category ?? 'other',
-        description: row.description ?? '',
-        detailCategory: row.detail_category ?? undefined,
-        effectiveDate: row.effective_date,
-        tripId: row.trip_id,
-        myShare: row.my_share === null ? null : Number(row.my_share),
-        pending: row.pending === true,
-        source: 'manual' as const,
-        accountLabel:
-          row.account_label != null && String(row.account_label).trim()
-            ? String(row.account_label).trim()
-            : accountLabel,
-      }
+      const tx = apiTransactionFromDbRow(row, accountLabel)
       res.json({ transaction: tx })
     } catch (e) {
       console.error('[user/transactions PATCH]', e)

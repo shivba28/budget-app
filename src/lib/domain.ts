@@ -32,6 +32,11 @@ export interface Transaction {
   readonly tripId?: number | null
   /** When true, row is not shown on the Transactions page (still stored for when it posts). */
   readonly pending?: boolean
+  /**
+   * User marked a pending bank charge as posted (server-backed). Keeps the row visible
+   * until Teller clears pending, without overwriting this flag on sync.
+   */
+  readonly userConfirmed?: boolean
 }
 
 export interface ManualAccount {

@@ -355,6 +355,26 @@ export async function deleteManualTransactionOnLocal(
   }
 }
 
+export async function confirmTransactionPostedOnLocal(
+  transactionId: string,
+): Promise<Transaction | null> {
+  try {
+    const txs = readTransactions()
+    const idx = txs.findIndex((x) => x.id === transactionId)
+    if (idx < 0) return null
+    const cur = txs[idx]!
+    const patched: Transaction = { ...cur, userConfirmed: true }
+    const next = [...txs]
+    next[idx] = patched
+    const sorted = sortTxsDesc(next)
+    writeTransactions(sorted)
+    storage.saveTransactions(sorted)
+    return patched
+  } catch {
+    return null
+  }
+}
+
 export async function updateManualTransactionOnLocal(input: {
   transactionId: string
   description: string
