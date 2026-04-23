@@ -7,6 +7,10 @@ import { accounts } from '../schema'
 
 export type AccountRow = InferSelectModel<typeof accounts>
 
+export function listAllAccounts(): AccountRow[] {
+  return db.select().from(accounts).all()
+}
+
 export function listManualAccounts(): AccountRow[] {
   return db
     .select()

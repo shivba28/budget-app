@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Ionicons } from '@expo/vector-icons'
 import { Canvas, Path, Skia } from '@shopify/react-native-skia'
 import {
   Easing,
@@ -19,7 +21,7 @@ import {
 
 import { useFocusEffect } from 'expo-router'
 
-import { BrutalScreen } from '@/src/components/Brutalist'
+import { DateInput } from '@/src/components/DateInput'
 import * as accountsQ from '@/src/db/queries/accounts'
 import * as budgetsQ from '@/src/db/queries/budgets'
 import * as tripsQ from '@/src/db/queries/trips'
@@ -30,7 +32,6 @@ import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import {
   dismissAnomaly,
   dismissDuplicate,
-  dismissedInsightsCounts,
   getDismissedAnomalyIds,
   getDismissedDuplicateKeys,
   maybeResetDismissalsOnNewSync,
@@ -42,7 +43,10 @@ import {
   monthKeyFromParts,
   shiftMonth,
 } from '@/src/lib/insights/utils'
-import { tokens } from '@/src/theme/tokens'
+const CREAM = '#FAFAF5'
+const INK = '#111111'
+const MUTED = '#E1E1E1'
+const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
 const CATEGORY_COLORS = [
   '#F94144', // red
@@ -71,7 +75,7 @@ function hashString(s: string): number {
 function colorForCategory(category: string): string {
   const key = category.trim().toLowerCase() || 'other'
   const idx = hashString(key) % CATEGORY_COLORS.length
-  return CATEGORY_COLORS[idx] ?? tokens.color.accent
+  return CATEGORY_COLORS[idx] ?? '#9B5DE5'
 }
 
 function resolveCategoryColor(label: string, categoryRows: { label: string; color: string | null }[]): string {
@@ -354,7 +358,7 @@ function buildDonutItems(
       {
         label: 'Other',
         value: otherTotal,
-        color: tokens.color.muted,
+        color: '#888888',
       },
     ]
   }
@@ -362,6 +366,7 @@ function buildDonutItems(
 }
 
 export default function Insights() {
+  const insets = useSafeAreaInsets()
   const [navYm, setNavYm] = useState(() => nowYearMonth())
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null)
   const [showCustomModal, setShowCustomModal] = useState(false)
@@ -433,11 +438,6 @@ export default function Insights() {
     txStoreItems,
   ])
 
-  const dismissCounts = useMemo(() => {
-    void dismissRev
-    return dismissedInsightsCounts()
-  }, [dismissRev])
-
   const todayYm = nowYearMonth()
   const atLatestMonth =
     navYm.year === todayYm.year && navYm.month === todayYm.month
@@ -493,9 +493,13 @@ export default function Insights() {
   }, [focusKey, txStoreItems])
 
   return (
-    <BrutalScreen title="Insights" subtitle="Offline analytics (local SQLite)">
+    <View style={styles.screen}>
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
+        <Text style={styles.topbarTitle}>Insights</Text>
+        <Text style={styles.topbarSub}>Offline analytics</Text>
+      </View>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.monthNav}>
@@ -523,35 +527,17 @@ export default function Insights() {
               ›
             </Text>
           </Pressable>
-        </View>
-
-        <Text style={styles.hint}>
-          Month selector sets budgets, month-over-month, cash flow, trips, and weekly bars. Use
-          Custom range to override spend totals (donut, merchants, anomalies) for any dates;
-          change month to clear back to that full month.
-        </Text>
-
-        <View style={styles.row}>
-          <Text
+          <Pressable
             onPress={openCustomModal}
-            style={[styles.pill, customRange !== null && styles.pillActive]}
+            hitSlop={10}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+            accessibilityRole="button"
+            accessibilityLabel="Custom date range"
           >
-            Custom range
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.syncBanner,
-            dismissCounts.anomalies + dismissCounts.duplicates > 0 && styles.syncBannerActive,
-          ]}
-        >
-          <Text style={styles.syncBannerText}>
-            {dismissCounts.anomalies + dismissCounts.duplicates > 0
-              ? `${dismissCounts.anomalies + dismissCounts.duplicates} dismissed alert(s) · `
-              : ''}
-            Dismissed anomalies and duplicates come back after your next successful bank sync.
-          </Text>
+            <View style={[styles.calendarBtn, customRange !== null && styles.calendarBtnActive]}>
+              <Ionicons name="calendar-outline" size={18} color={INK} />
+            </View>
+          </Pressable>
         </View>
 
         {data.categoryTotalsDesc.length === 0 ? (
@@ -716,14 +702,9 @@ export default function Insights() {
               {data.budgetHealth.rows.slice(0, 10).map((r) => {
                 const budget = r.budget
                 const pct = budget > 0 ? Math.min(1, r.projectedSpend / budget) : 0
-                const fillColor =
-                  r.verdict === 'over'
-                    ? tokens.color.debit
-                    : r.verdict === 'close'
-                      ? tokens.color.accent
-                      : tokens.color.credit
+                const fillColor = resolveCategoryColor(r.category, categoryRows)
                 return (
-                  <View key={r.category} style={{ marginBottom: tokens.space[3] }}>
+                  <View key={r.category} style={{ marginBottom: 10 }}>
                     <View style={styles.lineRow}>
                       <Text style={styles.lineLeft} numberOfLines={1}>
                         {r.category}
@@ -747,27 +728,10 @@ export default function Insights() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Custom date range</Text>
-            <Text style={styles.modalHint}>Use YYYY-MM-DD (local effective / posted date).</Text>
             <Text style={styles.inputLabel}>Start</Text>
-            <TextInput
-              value={customDraftStart}
-              onChangeText={setCustomDraftStart}
-              placeholder="2026-04-01"
-              placeholderTextColor={tokens.color.fg}
-              style={styles.input}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <DateInput value={customDraftStart} onChange={setCustomDraftStart} style={styles.input} />
             <Text style={styles.inputLabel}>End</Text>
-            <TextInput
-              value={customDraftEnd}
-              onChangeText={setCustomDraftEnd}
-              placeholder="2026-04-30"
-              placeholderTextColor={tokens.color.fg}
-              style={styles.input}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <DateInput value={customDraftEnd} onChange={setCustomDraftEnd} style={styles.input} />
             <View style={styles.modalActions}>
               <Text onPress={() => setShowCustomModal(false)} style={styles.modalCancel}>
                 Cancel
@@ -779,87 +743,91 @@ export default function Insights() {
           </View>
         </View>
       </Modal>
-    </BrutalScreen>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingBottom: tokens.space[6] },
+  screen: {
+    flex: 1,
+    backgroundColor: CREAM,
+  },
+  topbar: {
+    backgroundColor: INK,
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  topbarTitle: {
+    fontFamily: MONO,
+    fontSize: 18,
+    fontWeight: '800',
+    color: CREAM,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  topbarSub: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#888888',
+    letterSpacing: 0.4,
+    flexShrink: 0,
+    marginLeft: 'auto',
+  },
+  scroll: { paddingHorizontal: 12, paddingTop: 12 },
   monthNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: tokens.space[2],
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.card,
-    paddingVertical: tokens.space[3],
-    paddingHorizontal: tokens.space[2],
+    marginBottom: 10,
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   monthArrow: {
-    minWidth: 44,
+    minWidth: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   monthArrowDisabled: { opacity: 0.35 },
   monthArrowText: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontSize: 28,
     fontWeight: '900',
-    color: tokens.color.fg,
+    color: INK,
     lineHeight: 32,
   },
-  monthArrowTextDisabled: { color: tokens.color.muted },
+  monthArrowTextDisabled: { color: '#999' },
   monthNavTitle: {
     flex: 1,
     textAlign: 'center',
-    fontFamily: tokens.font.mono,
-    fontSize: 16,
+    fontFamily: MONO,
+    fontSize: 15,
     fontWeight: '800',
-    color: tokens.color.fg,
+    color: INK,
   },
-  hint: {
-    fontFamily: tokens.font.mono,
-    fontSize: 11,
-    color: tokens.color.fg,
-    opacity: 0.75,
-    marginBottom: tokens.space[3],
-    lineHeight: 16,
+  calendarBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    marginLeft: 4,
   },
-  syncBanner: {
-    borderWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.muted,
-    padding: tokens.space[3],
-    marginBottom: tokens.space[4],
-  },
-  syncBannerActive: {
-    backgroundColor: tokens.color.accent,
-    borderColor: tokens.color.border,
-  },
-  syncBannerText: {
-    fontFamily: tokens.font.mono,
-    fontSize: 12,
-    lineHeight: 17,
-    color: tokens.color.fg,
-    fontWeight: '600',
-  },
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: tokens.space[2],
-    marginBottom: tokens.space[3],
-  },
-  pill: {
-    fontFamily: tokens.font.mono,
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    paddingVertical: tokens.space[2],
-    paddingHorizontal: tokens.space[3],
-    backgroundColor: tokens.color.card,
-  },
-  pillActive: {
-    backgroundColor: tokens.color.accent,
+  calendarBtnActive: {
+    backgroundColor: '#F5C842',
   },
   donutWrap: {
     height: 220,
@@ -877,184 +845,205 @@ const styles = StyleSheet.create({
     height: DONUT_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: tokens.space[3],
+    paddingHorizontal: 12,
   },
   donutCenterLabel: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontSize: 11,
     fontWeight: '800',
-    color: tokens.color.fg,
+    color: INK,
     opacity: 0.7,
     marginBottom: 2,
   },
   donutCenterValue: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontSize: 16,
     fontWeight: '900',
-    color: tokens.color.fg,
+    color: INK,
   },
   legendWrap: {
-    marginTop: tokens.space[2],
-    gap: tokens.space[2],
+    marginTop: 8,
+    gap: 4,
   },
   legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: tokens.space[2],
+    gap: 6,
   },
   legendSwatch: {
     width: 12,
     height: 12,
-    borderWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
+    borderWidth: 2,
+    borderColor: INK,
   },
   legendLabel: {
     flex: 1,
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
+    fontFamily: MONO,
+    color: INK,
     fontSize: 12,
-    opacity: 0.9,
   },
   legendValue: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
+    fontFamily: MONO,
+    color: INK,
     fontSize: 12,
     fontWeight: '800',
   },
   budgetTrack: {
-    height: 12,
+    height: 10,
     width: '100%',
-    maxWidth: 280,
-    backgroundColor: tokens.color.muted,
-    borderWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
+    backgroundColor: MUTED,
+    borderWidth: 2,
+    borderColor: INK,
   },
   budgetFill: {
     height: '100%',
   },
   box: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    borderRadius: tokens.radius.md,
-    padding: tokens.space[5],
-    backgroundColor: tokens.color.card,
+    borderWidth: 3,
+    borderColor: INK,
+    padding: 14,
+    backgroundColor: CREAM,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   card: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    borderRadius: tokens.radius.md,
-    padding: tokens.space[4],
-    backgroundColor: tokens.color.card,
-    marginBottom: tokens.space[4],
+    borderWidth: 3,
+    borderColor: INK,
+    padding: 12,
+    backgroundColor: CREAM,
+    marginBottom: 10,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   h2: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
+    fontSize: 12,
     fontWeight: '800',
-    color: tokens.color.fg,
-    marginBottom: tokens.space[2],
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   rangeCaption: {
-    fontFamily: tokens.font.mono,
-    fontSize: 12,
+    fontFamily: MONO,
+    fontSize: 11,
     fontWeight: '700',
-    color: tokens.color.fg,
-    opacity: 0.8,
-    marginBottom: tokens.space[2],
+    color: '#666',
+    marginBottom: 8,
   },
   text: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
-    fontSize: 14,
+    fontFamily: MONO,
+    color: INK,
+    fontSize: 13,
   },
   kpi: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
+    fontFamily: MONO,
+    color: INK,
     fontSize: 13,
-    marginTop: tokens.space[2],
+    marginTop: 8,
   },
   lineRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: tokens.space[3],
-    marginBottom: tokens.space[2],
+    gap: 10,
+    marginBottom: 6,
   },
   lineLeft: {
     flex: 1,
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
+    fontFamily: MONO,
+    color: INK,
     fontSize: 13,
-    opacity: 0.85,
   },
   lineRight: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
+    fontFamily: MONO,
+    color: INK,
     fontSize: 13,
     fontWeight: '800',
   },
   dismiss: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.accent,
+    fontFamily: MONO,
+    color: '#F5C842',
     fontSize: 12,
     fontWeight: '800',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
-    padding: tokens.space[4],
+    padding: 16,
   },
   modalCard: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.card,
-    padding: tokens.space[4],
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    padding: 16,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   modalTitle: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontWeight: '800',
-    fontSize: 16,
-    color: tokens.color.fg,
-    marginBottom: tokens.space[2],
+    fontSize: 14,
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   modalHint: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontSize: 12,
-    color: tokens.color.fg,
-    opacity: 0.8,
-    marginBottom: tokens.space[3],
+    color: '#666',
+    marginBottom: 12,
   },
   inputLabel: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontSize: 12,
-    fontWeight: '700',
-    marginBottom: tokens.space[1],
-    color: tokens.color.fg,
+    fontWeight: '800',
+    marginBottom: 4,
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   input: {
-    fontFamily: tokens.font.mono,
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    padding: tokens.space[2],
-    marginBottom: tokens.space[3],
-    color: tokens.color.fg,
-    backgroundColor: tokens.color.bg,
+    fontFamily: MONO,
+    borderWidth: 2,
+    borderColor: INK,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    marginBottom: 10,
+    color: INK,
+    backgroundColor: CREAM,
+    fontSize: 14,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: tokens.space[4],
-    marginTop: tokens.space[2],
+    gap: 16,
+    marginTop: 8,
   },
   modalCancel: {
-    fontFamily: tokens.font.mono,
-    fontWeight: '700',
-    color: tokens.color.fg,
-    padding: tokens.space[2],
+    fontFamily: MONO,
+    fontWeight: '800',
+    color: INK,
+    padding: 8,
+    fontSize: 13,
+    textTransform: 'uppercase',
   },
   modalApply: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
     fontWeight: '800',
-    color: tokens.color.accent,
-    padding: tokens.space[2],
+    color: '#F5C842',
+    padding: 8,
+    fontSize: 13,
+    textTransform: 'uppercase',
   },
 })

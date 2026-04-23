@@ -10,6 +10,7 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 
+import { DateInput } from '@/src/components/DateInput'
 import {
   BrutalBackRow,
   BrutalButton,
@@ -112,7 +113,8 @@ export default function TransactionNewScreen() {
                 </Pressable>
               ))}
             </View>
-            <BrutalTextField label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate} />
+            <Text style={styles.blockLabel}>Date</Text>
+            <DateInput value={date} onChange={setDate} style={styles.dateInput} />
             <BrutalTextField
               label="Amount (negative = spend)"
               value={amount}
@@ -185,6 +187,9 @@ const styles = StyleSheet.create({
     marginBottom: tokens.space[2],
     marginTop: tokens.space[2],
     color: tokens.color.fg,
+  },
+  dateInput: {
+    marginBottom: tokens.space[3],
   },
   chips: {
     flexDirection: 'row',

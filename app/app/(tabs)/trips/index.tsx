@@ -1,105 +1,239 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  FlatList,
+  Platform,
   Pressable,
-  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { BottomSheetModal } from '@gorhom/bottom-sheet'
 import { useFocusEffect, useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { BrutalScreen } from '@/src/components/Brutalist'
+import * as txq from '@/src/db/queries/transactions'
+import { TripNewBottomSheet } from '@/src/components/trips/TripNewBottomSheet'
 import { useTripsStore } from '@/src/stores/tripsStore'
-import { tokens } from '@/src/theme/tokens'
+import { useUiSignals } from '@/src/stores/uiSignals'
+
+const CREAM = '#FAFAF5'
+const INK = '#111111'
+const MUTED = '#E8E8E0'
+const GREEN = '#3BCEAC'
+const RED = '#FF5E5E'
+const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
+
+function spendColor(pct: number): string {
+  if (pct >= 1) return RED
+  if (pct >= 0.75) return YELLOW
+  return GREEN
+}
+
+function formatShortDate(d: string): string {
+  const dt = new Date(d + 'T00:00:00')
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function tripMeta(trip: { budget_limit: number | null; start_date: string | null; end_date: string | null }): string | null {
+  const parts: string[] = []
+  if (trip.budget_limit != null) parts.push(`Cap $${trip.budget_limit.toLocaleString()}`)
+  if (trip.start_date || trip.end_date) {
+    const s = trip.start_date ? formatShortDate(trip.start_date) : '?'
+    const e = trip.end_date ? formatShortDate(trip.end_date) : '?'
+    parts.push(`${s} – ${e}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
 
 export default function TripsListScreen() {
+  const insets = useSafeAreaInsets()
   const router = useRouter()
   const items = useTripsStore((s) => s.items)
   const load = useTripsStore((s) => s.load)
-  const [refreshing, setRefreshing] = useState(false)
+  const addTripSignal = useUiSignals((s) => s.addTripSignal)
+  const sheetRef = useRef<BottomSheetModal>(null)
+  const [pendingNavId, setPendingNavId] = useState<number | null>(null)
 
+  useEffect(() => { load() }, [load])
+  useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // Open sheet when FAB fires the signal (skip the initial 0 value)
   useEffect(() => {
-    load()
-  }, [load])
+    if (addTripSignal === 0) return
+    sheetRef.current?.present()
+  }, [addTripSignal])
 
-  useFocusEffect(
-    useCallback(() => {
-      load()
-    }, [load]),
-  )
+  const onCreated = (id: number) => {
+    setPendingNavId(id)
+  }
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true)
-    load()
-    setRefreshing(false)
-  }, [load])
+  const onSheetDismiss = () => {
+    if (pendingNavId !== null) {
+      router.push(`/app/(tabs)/trips/${pendingNavId}`)
+      setPendingNavId(null)
+    }
+  }
+
+  const spendByTrip = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const t of txq.listTransactions()) {
+      if (t.trip_id == null) continue
+      if (t.pending === 1 && t.user_confirmed !== 1) continue
+      const amt = typeof t.my_share === 'number' && t.my_share > 0
+        ? t.my_share
+        : t.amount < 0 ? Math.abs(t.amount) : 0
+      if (amt <= 0) continue
+      map.set(t.trip_id, (map.get(t.trip_id) ?? 0) + amt)
+    }
+    return map
+  }, [items])
 
   return (
-    <BrutalScreen title="Trips" subtitle="Tag spending by getaway · use + below to add a trip">
-      <Text style={styles.section}>YOUR TRIPS</Text>
-      <FlatList
-        data={items}
-        keyExtractor={(item) => String(item.id)}
+    <View style={styles.screen}>
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
+        <Text style={styles.topbarTitle}>Trips</Text>
+        <Text style={styles.topbarSub}>Tag spending</Text>
+      </View>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            No trips yet — tap the + button in the tab bar to create one.
-          </Text>
-        }
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => router.push(`/app/(tabs)/trips/${item.id}`)}
-            style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={styles.rowTitle}>{item.name}</Text>
-            {item.budget_limit != null ? (
-              <Text style={styles.rowMeta}>Cap {item.budget_limit}</Text>
-            ) : null}
-          </Pressable>
+      >
+        <Text style={styles.sectionLabel}>Your trips</Text>
+        {items.length === 0 ? (
+          <Text style={styles.empty}>No trips yet — tap + to create one.</Text>
+        ) : (
+          items.map((trip) => {
+            const spend = spendByTrip.get(trip.id) ?? 0
+            const pct = trip.budget_limit != null && trip.budget_limit > 0
+              ? Math.min(1, spend / trip.budget_limit)
+              : null
+            const meta = tripMeta(trip)
+            return (
+              <Pressable
+                key={trip.id}
+                onPress={() => router.push(`/app/(tabs)/trips/${trip.id}`)}
+                style={({ pressed }) => pressed && { opacity: 0.85 }}
+              >
+                <View style={styles.tripCard}>
+                  <View style={styles.tripRow}>
+                    <Text style={styles.tripName}>{trip.name}</Text>
+                    <Text style={styles.tripChev}>›</Text>
+                  </View>
+                  {meta ? <Text style={styles.tripMeta}>{meta}</Text> : null}
+                  {pct !== null ? (
+                    <>
+                      <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${pct * 100}%` as any, backgroundColor: spendColor(pct) }]} />
+                      </View>
+                      <Text style={styles.tripSpent}>
+                        ${spend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} spent
+                      </Text>
+                    </>
+                  ) : null}
+                </View>
+              </Pressable>
+            )
+          })
         )}
-        contentContainerStyle={styles.list}
+      </ScrollView>
+      <TripNewBottomSheet
+        ref={sheetRef}
+        onCreated={onCreated}
+        onDismiss={onSheetDismiss}
       />
-    </BrutalScreen>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  section: {
-    marginTop: tokens.space[2],
-    marginBottom: tokens.space[3],
-    fontSize: 11,
+  screen: { flex: 1, backgroundColor: CREAM },
+  topbar: {
+    backgroundColor: INK,
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  topbarTitle: {
+    fontFamily: MONO,
+    fontSize: 18,
+    fontWeight: '800',
+    color: CREAM,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  topbarSub: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#888888',
+    flexShrink: 0,
+    marginLeft: 'auto',
+  },
+  scroll: { padding: 12 },
+  sectionLabel: {
+    fontFamily: MONO,
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1,
-    color: tokens.color.fg,
+    textTransform: 'uppercase',
+    color: INK,
+    marginBottom: 6,
   },
-  list: { paddingBottom: tokens.space[6], gap: tokens.space[2] },
   empty: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
-    opacity: 0.7,
-    paddingVertical: tokens.space[4],
+    fontFamily: MONO,
+    fontSize: 13,
+    color: '#666666',
+    paddingVertical: 12,
   },
-  row: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.color.card,
-    padding: tokens.space[4],
+  tripCard: {
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    padding: 10,
+    marginBottom: 6,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
-  rowTitle: {
+  tripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tripName: {
+    fontFamily: MONO,
+    fontSize: 14,
     fontWeight: '800',
-    fontSize: 16,
-    color: tokens.color.fg,
+    color: INK,
   },
-  rowMeta: {
-    marginTop: tokens.space[2],
-    fontFamily: tokens.font.mono,
-    fontSize: 12,
-    color: tokens.color.fg,
-    opacity: 0.65,
+  tripChev: {
+    fontFamily: MONO,
+    fontSize: 14,
+    color: '#999999',
+  },
+  tripMeta: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: '#666666',
+    marginTop: 3,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: MUTED,
+    borderWidth: 2,
+    borderColor: INK,
+    marginTop: 5,
+  },
+  progressFill: { height: '100%' },
+  tripSpent: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: '#666666',
+    marginTop: 2,
   },
 })

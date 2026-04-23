@@ -1,51 +1,67 @@
 import type { ReactNode } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
+import { Ionicons } from '@expo/vector-icons'
 
 import type { TransactionRow } from '@/src/db/queries/transactions'
 import { tokens } from '@/src/theme/tokens'
 
 type Props = {
   tx: TransactionRow
-  onPress: () => void
   onAllocate: (tx: TransactionRow) => void
+  onEdit: (tx: TransactionRow) => void
+  onDelete: (tx: TransactionRow) => void
   children: ReactNode
 }
 
 export function TransactionSwipeRow({
   tx,
-  onPress,
   onAllocate,
+  onEdit,
+  onDelete,
   children,
 }: Props) {
+  const renderActions = (_p: unknown, _t: unknown, methods: { close: () => void }) => {
+    if (tx.source === 'manual') {
+      return (
+        <View style={styles.actions}>
+          <Pressable onPress={() => { onEdit(tx); methods.close() }}
+            style={({ pressed }) => pressed && styles.pressed}>
+            <View style={[styles.iconBox, styles.editBox]}>
+              <Ionicons name="pencil" size={20} color={tokens.color.fg} />
+            </View>
+          </Pressable>
+          <Pressable onPress={() => { onDelete(tx); methods.close() }}
+            style={({ pressed }) => pressed && styles.pressed}>
+            <View style={[styles.iconBox, styles.deleteBox]}>
+              <Ionicons name="trash" size={20} color="#fff" />
+            </View>
+          </Pressable>
+        </View>
+      )
+    }
+    return (
+      <View style={styles.actions}>
+        <Pressable onPress={() => { onAllocate(tx); methods.close() }}
+          style={({ pressed }) => pressed && styles.pressed}>
+          <View style={[styles.iconBox, styles.allocateBox]}>
+            <Ionicons name="albums-outline" size={22} color={tokens.color.fg} />
+          </View>
+        </Pressable>
+      </View>
+    )
+  }
+
   return (
     <ReanimatedSwipeable
       friction={2}
       enableTrackpadTwoFingerGesture
       rightThreshold={40}
-      renderRightActions={(_p, _t, methods) => (
-        <View style={styles.actions}>
-          <Pressable
-            onPress={() => {
-              onAllocate(tx)
-              methods.close()
-            }}
-            style={({ pressed }) => [
-              styles.allocateBtn,
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Text style={styles.allocateLabel}>Allocate</Text>
-          </Pressable>
-        </View>
-      )}
+      renderRightActions={renderActions}
     >
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.rowWrap, pressed && { opacity: 0.9 }]}
-      >
+      <View style={styles.rowWrap}>
         {children}
-      </Pressable>
+      </View>
     </ReanimatedSwipeable>
   )
 }
@@ -56,24 +72,31 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.color.card,
   },
   actions: {
-    justifyContent: 'center',
-    alignItems: 'stretch',
-    width: 104,
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    gap: 6,
+    marginBottom: 10,
   },
-  allocateBtn: {
-    flex: 1,
-    backgroundColor: tokens.color.accent,
-    borderLeftWidth: tokens.border.w3,
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderWidth: tokens.border.w3,
     borderColor: tokens.color.border,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 0,
   },
-  allocateLabel: {
-    fontWeight: '900',
-    fontSize: 12,
-    color: tokens.color.fg,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  editBox: {
+    backgroundColor: '#D4D4C4',
+  },
+  deleteBox: {
+    backgroundColor: '#CC2222',
+  },
+  allocateBox: {
+    backgroundColor: '#F5C842',
+  },
+  pressed: {
+    opacity: 0.75,
   },
 })

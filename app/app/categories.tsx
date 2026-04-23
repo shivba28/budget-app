@@ -1,18 +1,35 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
-import { useRouter } from 'expo-router'
-
+import { useEffect, useState } from 'react'
 import {
-  BrutalBackRow,
-  BrutalButton,
-  BrutalCard,
-  BrutalScreen,
-  BrutalTextField,
-} from '@/src/components/Brutalist'
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
+import { useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
-import { tokens } from '@/src/theme/tokens'
+
+const CREAM = '#FAFAF5'
+const INK = '#111111'
+const MUTED = '#E8E8E0'
+const YELLOW = '#F5C842'
+const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
+
+const PALETTE = [
+  '#F94144', '#F3722C', '#F8961E', '#F9C74F',
+  '#90BE6D', '#43AA8B', '#277DA1', '#9B5DE5',
+  '#F15BB5', '#00BBF9', '#3BCEAC', '#F5C842',
+  '#FF5E5E', '#C5B4E3', '#111111',
+]
 
 export default function CategoriesScreen() {
+  const insets = useSafeAreaInsets()
   const router = useRouter()
   const items = useCategoriesStore((s) => s.items)
   const load = useCategoriesStore((s) => s.load)
@@ -27,30 +44,7 @@ export default function CategoriesScreen() {
   const [editColor, setEditColor] = useState('')
   const [pickerOpen, setPickerOpen] = useState<null | 'create' | 'edit'>(null)
 
-  const PALETTE = useMemo(
-    () => [
-      '#111111',
-      '#FFFFFF',
-      '#F94144',
-      '#F3722C',
-      '#F8961E',
-      '#F9C74F',
-      '#90BE6D',
-      '#43AA8B',
-      '#277DA1',
-      '#9B5DE5',
-      '#F15BB5',
-      '#00BBF9',
-      tokens.color.accent,
-      tokens.color.debit,
-      tokens.color.credit,
-    ],
-    [],
-  )
-
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   const onCreate = () => {
     const l = label.trim()
@@ -72,120 +66,137 @@ export default function CategoriesScreen() {
     if (!editingId) return
     const l = editLabel.trim()
     if (!l) return
-    update(editingId, {
-      label: l,
-      color: editColor.trim() || null,
-    })
+    update(editingId, { label: l, color: editColor.trim() || null })
     setEditingId(null)
   }
 
   const onDelete = (id: string) => {
     Alert.alert('Delete category', 'Budget rows that reference this label stay as-is.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => remove(id),
-      },
+      { text: 'Delete', style: 'destructive', onPress: () => remove(id) },
     ])
   }
 
   return (
-    <BrutalScreen title="Categories" subtitle="Labels for manual transactions">
-      <BrutalBackRow onBack={() => router.back()} />
-      <BrutalCard>
-        <BrutalTextField label="Name" value={label} onChangeText={setLabel} />
-        <View style={styles.colorRow}>
-          <View
-            style={[
-              styles.colorPreview,
-              color.trim() ? { backgroundColor: color.trim() } : styles.colorPreviewEmpty,
-            ]}
+    <View style={styles.screen}>
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+          <Text style={styles.backChev}>‹</Text>
+        </Pressable>
+        <Text style={styles.topbarTitle}>Categories</Text>
+        <Text style={styles.topbarSub}>Labels</Text>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Create form */}
+        <View style={styles.card}>
+          <Text style={styles.fieldLabel}>Name</Text>
+          <TextInput
+            style={styles.fieldInput}
+            value={label}
+            onChangeText={setLabel}
+            placeholder="e.g. Dining…"
+            placeholderTextColor="#999"
           />
-          <View style={{ flex: 1 }}>
-            <BrutalTextField
-              label="Color (hex, optional)"
+          <Text style={styles.fieldLabel}>Color (hex, optional)</Text>
+          <View style={styles.colorRow}>
+            <View style={[styles.colorPreview, color.trim() ? { backgroundColor: color.trim() } : null]} />
+            <TextInput
+              style={[styles.fieldInput, styles.colorInput]}
               value={color}
               onChangeText={setColor}
-              placeholder="#111111"
+              placeholder="#F94144"
+              placeholderTextColor="#999"
               autoCapitalize="none"
+              autoCorrect={false}
             />
-            <Pressable
-              onPress={() => setPickerOpen('create')}
-              style={({ pressed }) => [styles.pickBtn, pressed && { opacity: 0.8 }]}
-            >
+          </View>
+          <Pressable onPress={() => setPickerOpen('create')} style={({ pressed }) => pressed && { opacity: 0.8 }}>
+            <View style={styles.pickBtn}>
               <Text style={styles.pickBtnText}>Pick a color</Text>
-            </Pressable>
-          </View>
+            </View>
+          </Pressable>
+          <Pressable onPress={onCreate} style={({ pressed }) => pressed && { opacity: 0.85 }}>
+            <View style={[styles.btn, styles.btnYellow]}>
+              <Text style={styles.btnText}>Add category</Text>
+            </View>
+          </Pressable>
         </View>
-        <BrutalButton title="Add category" onPress={onCreate} />
-      </BrutalCard>
-      <Text style={styles.section}>ALL</Text>
-      <FlatList
-        data={items}
-        keyExtractor={(c) => c.id}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No categories yet.</Text>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            {editingId === item.id ? (
-              <>
-                <BrutalTextField
-                  label="Edit name"
-                  value={editLabel}
-                  onChangeText={setEditLabel}
-                />
-                <BrutalTextField
-                  label="Edit color"
-                  value={editColor}
-                  onChangeText={setEditColor}
-                  autoCapitalize="none"
-                />
-                <Pressable
-                  onPress={() => setPickerOpen('edit')}
-                  style={({ pressed }) => [styles.pickBtn, pressed && { opacity: 0.8 }]}
-                >
-                  <Text style={styles.pickBtnText}>Pick a color</Text>
-                </Pressable>
-                <View style={styles.rowActions}>
-                  <BrutalButton title="Save" onPress={onSaveEdit} />
-                  <BrutalButton
-                    title="Cancel"
-                    variant="neutral"
-                    onPress={() => setEditingId(null)}
-                  />
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.rowTop}>
-                  <View
-                    style={[
-                      styles.swatch,
-                      item.color
-                        ? { backgroundColor: item.color }
-                        : styles.swatchEmpty,
-                    ]}
-                  />
-                  <Text style={styles.rowLabel}>{item.label}</Text>
-                </View>
-                <View style={styles.rowActions}>
-                  <BrutalButton title="Edit" onPress={() => startEdit(item.id)} />
-                  <BrutalButton
-                    title="Delete"
-                    variant="neutral"
-                    onPress={() => onDelete(item.id)}
-                  />
-                </View>
-              </>
-            )}
-          </View>
-        )}
-        contentContainerStyle={styles.list}
-      />
 
+        {/* List */}
+        <Text style={styles.sectionLabel}>All</Text>
+        {items.length === 0 ? (
+          <Text style={styles.empty}>No categories yet.</Text>
+        ) : (
+          items.map((item) => {
+            if (editingId === item.id) {
+              return (
+                <View key={item.id} style={styles.editCard}>
+                  <Text style={styles.fieldLabel}>Name</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={editLabel}
+                    onChangeText={setEditLabel}
+                    autoCorrect={false}
+                  />
+                  <Text style={styles.fieldLabel}>Color (hex, optional)</Text>
+                  <View style={styles.colorRow}>
+                    <View style={[styles.colorPreview, editColor.trim() ? { backgroundColor: editColor.trim() } : null]} />
+                    <TextInput
+                      style={[styles.fieldInput, styles.colorInput]}
+                      value={editColor}
+                      onChangeText={setEditColor}
+                      placeholder="#F94144"
+                      placeholderTextColor="#999"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                  <Pressable onPress={() => setPickerOpen('edit')} style={({ pressed }) => pressed && { opacity: 0.8 }}>
+                    <View style={styles.pickBtn}>
+                      <Text style={styles.pickBtnText}>Pick a color</Text>
+                    </View>
+                  </Pressable>
+                  <View style={styles.editBtnRow}>
+                    <Pressable onPress={onSaveEdit} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
+                      <View style={[styles.btn, styles.btnYellow]}>
+                        <Text style={styles.btnText}>Save</Text>
+                      </View>
+                    </Pressable>
+                    <Pressable onPress={() => onDelete(item.id)} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
+                      <View style={[styles.btn, styles.btnRed]}>
+                        <Text style={styles.btnText}>Delete</Text>
+                      </View>
+                    </Pressable>
+                    <Pressable onPress={() => setEditingId(null)} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
+                      <View style={[styles.btn, styles.btnNeutral]}>
+                        <Text style={styles.btnText}>Cancel</Text>
+                      </View>
+                    </Pressable>
+                  </View>
+                </View>
+              )
+            }
+
+            const bg = item.color ?? MUTED
+            return (
+              <Pressable key={item.id} onPress={() => startEdit(item.id)} style={({ pressed }) => pressed && { opacity: 0.85 }}>
+                <View style={[styles.catBadge, { backgroundColor: bg }]}>
+                  <View style={[styles.catSwatch, { backgroundColor: bg }]} />
+                  <Text style={styles.catLabel} numberOfLines={1}>{item.label}</Text>
+                  <Text style={styles.catEdit}>Edit</Text>
+                </View>
+              </Pressable>
+            )
+          })
+        )}
+      </ScrollView>
+
+      {/* Color picker modal */}
       <Modal visible={pickerOpen !== null} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -199,156 +210,254 @@ export default function CategoriesScreen() {
                     else setColor(c)
                     setPickerOpen(null)
                   }}
-                  style={({ pressed }) => [styles.swatchBtn, pressed && { opacity: 0.8 }]}
+                  style={({ pressed }) => pressed && { opacity: 0.8 }}
                 >
-                  <View style={[styles.swatchDot, { backgroundColor: c }]} />
+                  <View style={[styles.swatchBtn, { backgroundColor: c }]} />
                 </Pressable>
               ))}
             </View>
-            <Pressable
-              onPress={() => setPickerOpen(null)}
-              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={styles.closeBtnText}>Close</Text>
+            <Pressable onPress={() => setPickerOpen(null)} style={({ pressed }) => pressed && { opacity: 0.8 }}>
+              <View style={[styles.btn, styles.btnNeutral]}>
+                <Text style={styles.btnText}>Close</Text>
+              </View>
             </Pressable>
           </View>
         </View>
       </Modal>
-    </BrutalScreen>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  section: {
-    marginTop: tokens.space[5],
-    marginBottom: tokens.space[3],
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    color: tokens.color.fg,
-  },
-  list: {
-    paddingBottom: tokens.space[6] + tokens.space[5],
-    gap: tokens.space[3],
-  },
-  empty: {
-    fontFamily: tokens.font.mono,
-    color: tokens.color.fg,
-    opacity: 0.7,
-  },
-  row: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.color.card,
-    padding: tokens.space[4],
-  },
-  rowTop: {
+  screen: { flex: 1, backgroundColor: CREAM },
+  topbar: {
+    backgroundColor: INK,
+    paddingHorizontal: 14,
+    paddingBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: tokens.space[3],
-    marginBottom: tokens.space[3],
+    gap: 8,
   },
-  swatch: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
+  backChev: {
+    fontFamily: MONO,
+    fontSize: 24,
+    fontWeight: '900',
+    color: CREAM,
+    lineHeight: 24,
   },
-  swatchEmpty: {
-    backgroundColor: tokens.color.muted,
-  },
-  rowLabel: {
+  topbarTitle: {
+    fontFamily: MONO,
+    fontSize: 18,
     fontWeight: '800',
-    fontSize: 16,
-    color: tokens.color.fg,
-    flex: 1,
+    color: CREAM,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    flexShrink: 1,
+    minWidth: 0,
   },
-  rowActions: {
-    gap: tokens.space[2],
+  topbarSub: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#888888',
+    flexShrink: 0,
+    marginLeft: 'auto',
+  },
+  scroll: { padding: 12 },
+  card: {
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    padding: 12,
+    marginBottom: 10,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  editCard: {
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: MUTED,
+    padding: 12,
+    marginBottom: 6,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  fieldLabel: {
+    fontFamily: MONO,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: INK,
+    marginBottom: 4,
+    marginTop: 6,
+  },
+  fieldInput: {
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    fontFamily: MONO,
+    fontSize: 14,
+    color: INK,
+    marginBottom: 6,
   },
   colorRow: {
     flexDirection: 'row',
-    gap: tokens.space[3],
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 0,
   },
   colorPreview: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    marginTop: 22,
+    width: 28,
+    height: 28,
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: MUTED,
+    flexShrink: 0,
   },
-  colorPreviewEmpty: {
-    backgroundColor: tokens.color.muted,
+  colorInput: {
+    flex: 1,
+    marginBottom: 6,
   },
   pickBtn: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.card,
-    paddingVertical: tokens.space[2],
-    paddingHorizontal: tokens.space[3],
-    marginBottom: tokens.space[4],
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: MUTED,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    marginBottom: 10,
   },
   pickBtnText: {
-    fontFamily: tokens.font.mono,
+    fontFamily: MONO,
+    fontSize: 12,
     fontWeight: '800',
-    color: tokens.color.fg,
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  btn: {
+    borderWidth: 3,
+    borderColor: INK,
+    paddingVertical: 10,
+    alignItems: 'center',
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  btnYellow: { backgroundColor: YELLOW },
+  btnRed: { backgroundColor: '#FF5E5E' },
+  btnNeutral: { backgroundColor: CREAM },
+  btnText: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  editBtnRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+  },
+  sectionLabel: {
+    fontFamily: MONO,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: INK,
+    marginBottom: 6,
+  },
+  empty: {
+    fontFamily: MONO,
+    fontSize: 13,
+    color: '#666666',
+    paddingVertical: 12,
+  },
+  catBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 3,
+    borderColor: INK,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    marginBottom: 5,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  catSwatch: {
+    width: 12,
+    height: 12,
+    borderWidth: 2,
+    borderColor: INK,
+    flexShrink: 0,
+  },
+  catLabel: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
+    flex: 1,
+  },
+  catEdit: {
+    fontFamily: MONO,
+    fontSize: 11,
+    fontWeight: '800',
+    color: INK,
+    opacity: 0.6,
+    textTransform: 'uppercase',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
-    padding: tokens.space[4],
+    padding: 16,
   },
   modalCard: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.card,
-    padding: tokens.space[4],
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    padding: 16,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   modalTitle: {
-    fontFamily: tokens.font.mono,
-    fontWeight: '900',
-    fontSize: 16,
-    color: tokens.color.fg,
-    marginBottom: tokens.space[3],
+    fontFamily: MONO,
+    fontWeight: '800',
+    fontSize: 14,
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
   },
   paletteGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: tokens.space[2],
-    marginBottom: tokens.space[4],
+    gap: 8,
+    marginBottom: 16,
   },
   swatchBtn: {
     width: 44,
     height: 44,
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swatchDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
-  },
-  closeBtn: {
-    borderWidth: tokens.border.w3,
-    borderColor: tokens.color.border,
-    backgroundColor: tokens.color.accent,
-    paddingVertical: tokens.space[3],
-    paddingHorizontal: tokens.space[3],
-    alignItems: 'center',
-  },
-  closeBtnText: {
-    fontFamily: tokens.font.mono,
-    fontWeight: '900',
-    color: tokens.color.fg,
+    borderWidth: 3,
+    borderColor: INK,
   },
 })

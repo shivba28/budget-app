@@ -22,7 +22,9 @@ import Svg, { Path } from 'react-native-svg'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { DateInput } from '@/src/components/DateInput'
 import { AllocationBottomSheet } from '@/src/components/transactions/AllocationBottomSheet'
+import { EditTransactionBottomSheet } from '@/src/components/transactions/EditTransactionBottomSheet'
 import { TransactionSwipeRow } from '@/src/components/transactions/TransactionSwipeRow'
 import { META_LAST_TELLER_SYNC_AT } from '@/src/db/constants'
 import * as meta from '@/src/db/queries/appMeta'
@@ -37,7 +39,9 @@ import {
   getMonthKeysDescending,
   type TxListRow,
 } from '@/src/lib/transactions/listModel'
+import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
+import * as accountsQ from '@/src/db/queries/accounts'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 
 /** Neobrutalist mock tokens (budget_app_neobrutalist_screens.html) */
@@ -101,8 +105,22 @@ export default function TransactionsScreen() {
   const insets = useSafeAreaInsets()
   const items = useTransactionsStore((s) => s.items)
   const load = useTransactionsStore((s) => s.load)
+  const removeTransaction = useTransactionsStore((s) => s.remove)
   const categoryRows = useCategoriesStore((s) => s.items)
   const loadCategories = useCategoriesStore((s) => s.load)
+  const accountRows = useAccountsStore((s) => s.items)
+  const loadAccounts = useAccountsStore((s) => s.load)
+
+  const accountMap = useMemo(
+    () => new Map(accountsQ.listAllAccounts().map((a) => [a.id, { name: a.name, institution: a.institution }])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accountRows], // recompute when manual accounts change; bank accounts update on sync which triggers load
+  )
+
+  const categoryColorMap = useMemo(
+    () => new Map(categoryRows.map((c) => [c.label, c.color])),
+    [categoryRows],
+  )
 
   const [refreshing, setRefreshing] = useState(false)
   const [filters, setFilters] = useState<TransactionListFilters>({
@@ -121,6 +139,8 @@ export default function TransactionsScreen() {
 
   const allocRef = useRef<BottomSheetModal>(null)
   const [allocTxId, setAllocTxId] = useState<string | null>(null)
+  const editRef = useRef<BottomSheetModal>(null)
+  const [editTxId, setEditTxId] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<string | undefined>(() =>
     meta.getMeta(META_LAST_TELLER_SYNC_AT),
   )
@@ -128,14 +148,16 @@ export default function TransactionsScreen() {
   useEffect(() => {
     void load()
     loadCategories()
-  }, [load, loadCategories])
+    loadAccounts()
+  }, [load, loadCategories, loadAccounts])
 
   useFocusEffect(
     useCallback(() => {
       void load()
       loadCategories()
+      loadAccounts()
       setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-    }, [load, loadCategories]),
+    }, [load, loadCategories, loadAccounts]),
   )
 
   const onRefresh = useCallback(() => {
@@ -221,6 +243,19 @@ export default function TransactionsScreen() {
     setTimeout(() => allocRef.current?.present(), 0)
   }, [])
 
+  const onDelete = useCallback((tx: TransactionRow) => {
+    removeTransaction(tx.id)
+  }, [removeTransaction])
+
+  const onEdit = useCallback((tx: TransactionRow) => {
+    setEditTxId(tx.id)
+    setTimeout(() => editRef.current?.present(), 0)
+  }, [])
+
+  const onEditDismiss = useCallback(() => {
+    setEditTxId(null)
+  }, [])
+
   const onAllocDismiss = useCallback(() => {
     setAllocTxId(null)
   }, [])
@@ -293,33 +328,48 @@ export default function TransactionsScreen() {
       }
       const tx = item.tx
       const isIncome = tx.amount > 0
+      const categoryColor = tx.category ? (categoryColorMap.get(tx.category) ?? null) : null
+      const leftBorderColor = categoryColor ?? (isIncome ? NEO.incomeBorder : NEO.ink)
+      const acct = accountMap.get(tx.account_id)
+      const accountLabel = tx.source === 'bank'
+        ? [acct?.institution, acct?.name ?? tx.account_label].filter(Boolean).join(' · ')
+        : (acct?.name ?? tx.account_label ?? null)
       return (
         <TransactionSwipeRow
           tx={tx}
-          onPress={() => router.push(`/app/transaction-edit/${tx.id}`)}
           onAllocate={openAllocate}
+          onEdit={onEdit}
+          onDelete={onDelete}
         >
           <View
             style={[
               styles.txRow,
-              isIncome && styles.txRowIncome,
+              { borderLeftWidth: 4, borderLeftColor: leftBorderColor },
             ]}
           >
             <View style={styles.txRowTop}>
               <Text style={styles.txDesc} numberOfLines={1}>
                 {tx.description}
               </Text>
-              <Text
-                style={[
-                  styles.txAmount,
-                  isIncome && styles.txAmountIncome,
-                ]}
-              >
-                {formatTxMoney(tx.amount)}
-              </Text>
+              <View style={styles.txAmountCol}>
+                <Text
+                  style={[
+                    styles.txAmount,
+                    isIncome && styles.txAmountIncome,
+                  ]}
+                >
+                  {formatTxMoney(tx.amount)}
+                </Text>
+                {tx.source === 'bank' && tx.my_share != null ? (
+                  <Text style={styles.txShare}>
+                    share: {formatTxMoney(tx.my_share)}
+                  </Text>
+                ) : null}
+              </View>
             </View>
             <Text style={styles.txMeta}>
               {tx.effective_date ?? tx.date}
+              {accountLabel ? ` · ${accountLabel}` : ''}
               {tx.category ? ` · ${tx.category}` : ''}
               {tx.pending === 1 ? ' · pending' : ''}
             </Text>
@@ -327,7 +377,7 @@ export default function TransactionsScreen() {
         </TransactionSwipeRow>
       )
     },
-    [collapsed, openAllocate, router, toggleMonth, topMonthKey],
+    [accountMap, categoryColorMap, collapsed, onDelete, onEdit, openAllocate, toggleMonth, topMonthKey],
   )
 
   const renderListHeader = useCallback(
@@ -480,29 +530,18 @@ export default function TransactionsScreen() {
         onDismiss={onAllocDismiss}
       />
 
+      <EditTransactionBottomSheet
+        ref={editRef}
+        transactionId={editTxId}
+        onDismiss={onEditDismiss}
+      />
+
       <Modal visible={showCustomDate} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Custom date range</Text>
-            <Text style={styles.modalHint}>Use YYYY-MM-DD</Text>
-            <TextInput
-              value={customStart}
-              onChangeText={setCustomStart}
-              placeholder="Start (YYYY-MM-DD)"
-              placeholderTextColor="#888888"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.inputField}
-            />
-            <TextInput
-              value={customEnd}
-              onChangeText={setCustomEnd}
-              placeholder="End (YYYY-MM-DD)"
-              placeholderTextColor="#888888"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.inputField}
-            />
+            <DateInput value={customStart} onChange={setCustomStart} placeholder="Start date" style={styles.inputField} />
+            <DateInput value={customEnd} onChange={setCustomEnd} placeholder="End date" style={styles.inputField} />
             <View style={styles.modalRow}>
               <Pressable
                 onPress={() => setShowCustomDate(false)}
@@ -868,10 +907,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginBottom: 10,
   },
-  txRowIncome: {
-    borderLeftWidth: 3,
-    borderLeftColor: NEO.incomeBorder,
-  },
   txRowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -881,23 +916,33 @@ const styles = StyleSheet.create({
   txDesc: {
     flex: 1,
     fontFamily: NEO_MONO,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: NEO.ink,
   },
+  txAmountCol: {
+    alignItems: 'flex-end',
+  },
   txAmount: {
     fontFamily: NEO_MONO,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: NEO.ink,
   },
   txAmountIncome: {
     color: NEO.incomeGreen,
   },
+  txShare: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '700',
+    color: NEO.sub,
+    marginTop: 1,
+  },
   txMeta: {
     marginTop: 3,
     fontFamily: NEO_MONO,
-    fontSize: 10,
+    fontSize: 12,
     color: '#666666',
   },
   empty: {

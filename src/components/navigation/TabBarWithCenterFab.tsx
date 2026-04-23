@@ -1,5 +1,6 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 import { useRouter } from 'expo-router'
+import { useUiSignals } from '@/src/stores/uiSignals'
 import { useEffect, useMemo, useRef } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -108,14 +109,18 @@ function TabIcon({ name, active }: { name: string; active: boolean }) {
 
 export function TabBarWithCenterFab(props: BottomTabBarProps) {
   const router = useRouter()
+  const triggerAddTrip = useUiSignals((s) => s.triggerAddTrip)
   const insets = useSafeAreaInsets()
   const routeName = props.state.routes[props.state.index]?.name
+  const activeRoute = props.state.routes[props.state.index]
+  const nestedStackDepth = (activeRoute?.state as any)?.index ?? 0
+
   const showFab = routeName != null && FAB_TABS.has(routeName)
   const bottomPad = Math.max(insets.bottom, 10)
 
   const onFabPress = () => {
     if (routeName === 'transactions') router.push('/app/transaction-new')
-    else if (routeName === 'trips') router.push('/app/trip-new')
+    else if (routeName === 'trips') triggerAddTrip()
   }
 
   const a11yLabel = routeName === 'transactions' ? 'Add transaction' : 'Add trip'
@@ -130,6 +135,8 @@ export function TabBarWithCenterFab(props: BottomTabBarProps) {
       return byName.get(name) ?? null
     })
   }, [props.state.routes, showFab])
+
+  if (nestedStackDepth > 0) return null
 
   return (
     <View style={styles.wrap}>
@@ -198,20 +205,16 @@ const styles = StyleSheet.create({
   },
   floatingBar: {
     borderWidth: 3,
-    borderColor: FAB.icon,
+    borderColor: FAB.ink,
     backgroundColor: FAB.ink,
     borderRadius: 18,
-    overflow: 'hidden',
-    shadowColor: FAB.ink,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
+    overflow: 'hidden',  
     elevation: 6,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingVertical: 5,
     paddingHorizontal: 18,
     minHeight: BAR_HEIGHT,

@@ -1,36 +1,24 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useAuthStore } from '@/src/auth/authStore'
-import { BrutalButton, BrutalCard, BrutalScreen } from '@/src/components/Brutalist'
-import { tokens } from '@/src/theme/tokens'
 
-const links: {
-  href:
-    | '/app/categories'
-    | '/app/budgets'
-    | '/app/manual-accounts'
-    | '/app/bank-accounts'
-  label: string
-}[] = [
-  { href: '/app/categories', label: 'Categories' },
-  { href: '/app/budgets', label: 'Budgets' },
-  { href: '/app/manual-accounts', label: 'Manual accounts' },
-  {
-    href: '/app/bank-accounts',
-    label: 'Bank accounts (Teller)',
-  },
+const CREAM = '#FAFAF5'
+const INK = '#111111'
+const MUTED = '#E8E8E0'
+const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
+
+const links: { href: '/app/categories' | '/app/budgets' | '/app/manual-accounts' | '/app/bank-accounts'; label: string; icon: string }[] = [
+  { href: '/app/categories',    label: 'Categories',            icon: '🏷' },
+  { href: '/app/budgets',       label: 'Budgets',               icon: '📊' },
+  { href: '/app/manual-accounts', label: 'Manual accounts',     icon: '✍️' },
+  { href: '/app/bank-accounts', label: 'Bank accounts (Teller)', icon: '🏦' },
 ]
 
-const ICON: Record<string, string> = {
-  '/app/categories': '🏷',
-  '/app/budgets': '📊',
-  '/app/manual-accounts': '✍️',
-  '/app/bank-accounts': '🏦',
-}
-
-export default function Settings() {
+export default function SettingsScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const signOut = useAuthStore((s) => s.signOut)
 
   const onSignOut = () => {
@@ -55,82 +43,195 @@ export default function Settings() {
   }
 
   return (
-    <BrutalScreen title="Settings">
-      <BrutalCard>
-        <Text style={styles.section}>DATA</Text>
-        {links.map((l) => (
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <View style={styles.topbar}>
+        <Text style={styles.topbarTitle}>Settings</Text>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Data card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>Data</Text>
+          {links.map((l, i) => (
+            <Pressable
+              key={l.href}
+              onPress={() => router.push(l.href)}
+              style={({ pressed }) => pressed && { opacity: 0.7 }}
+            >
+              <View style={[styles.linkRow, i === 0 && styles.linkRowFirst]}>
+                <View style={styles.linkLeft}>
+                  <Text style={styles.linkIcon}>{l.icon}</Text>
+                  <Text style={styles.linkLabel}>{l.label}</Text>
+                </View>
+                <Text style={styles.linkChev}>›</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Security card */}
+        <View style={styles.card}>
+          <Text style={styles.bodyText}>
+            Unlock uses biometrics when available, with your PIN as backup.
+          </Text>
+          <View style={styles.spacer} />
           <Pressable
-            key={l.href}
-            onPress={() => router.push(l.href)}
-            style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.75 }]}
+            onPress={onSignOut}
+            style={({ pressed }) => pressed && { opacity: 0.8 }}
           >
-            <View style={styles.linkLeft}>
-              <Text style={styles.icon}>{ICON[l.href] ?? '•'}</Text>
-              <Text style={styles.linkText}>{l.label}</Text>
+            <View style={styles.btn}>
+              <Text style={styles.btnText}>Remove PIN &amp; lock again</Text>
             </View>
-            <Text style={styles.chev}>›</Text>
           </Pressable>
-        ))}
-      </BrutalCard>
-      <View style={styles.spacer} />
-      <BrutalCard>
-        <Text style={styles.body}>Unlock uses biometrics when available, with your PIN as backup.</Text>
-        <View style={styles.spacer} />
-        <BrutalButton title="Remove PIN & lock again" variant="neutral" onPress={onSignOut} />
-      </BrutalCard>
-    </BrutalScreen>
+        </View>
+
+        {/* App info card */}
+        <View style={[styles.card, styles.mutedCard]}>
+          <Text style={styles.sectionLabel}>App</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoKey}>Version</Text>
+            <Text style={styles.infoVal}>1.0.0</Text>
+          </View>
+          <View style={[styles.infoRow, styles.infoRowSpaced]}>
+            <Text style={styles.infoKey}>Storage</Text>
+            <Text style={styles.infoVal}>Local SQLite</Text>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  section: {
+  screen: {
+    flex: 1,
+    backgroundColor: CREAM,
+  },
+  topbar: {
+    backgroundColor: INK,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  topbarTitle: {
+    fontFamily: MONO,
+    fontSize: 17,
+    fontWeight: '700',
+    color: CREAM,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    fontSize: 11,
+  },
+  body: {
+    padding: 12,
+    gap: 10,
+  },
+  card: {
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    padding: 10,
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  mutedCard: {
+    backgroundColor: MUTED,
+  },
+  sectionLabel: {
+    fontFamily: MONO,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1,
-    color: tokens.color.fg,
-    marginBottom: tokens.space[3],
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: INK,
+    marginBottom: 8,
   },
   linkRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: tokens.space[3],
-    borderTopWidth: tokens.border.w2,
-    borderColor: tokens.color.border,
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: INK,
   },
+  linkRowFirst: {},
   linkLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: tokens.space[3],
+    gap: 8,
     flex: 1,
-    paddingRight: tokens.space[3],
   },
-  icon: {
-    width: 24,
-    textAlign: 'center',
+  linkIcon: {
     fontSize: 16,
-    color: tokens.color.fg,
+    width: 22,
+    textAlign: 'center',
   },
-  linkText: {
-    fontFamily: tokens.font.mono,
+  linkLabel: {
+    fontFamily: MONO,
     fontSize: 15,
-    fontWeight: '700',
-    color: tokens.color.fg,
-    flex: 1,
+    fontWeight: '800',
+    color: INK,
   },
-  chev: {
-    fontSize: 22,
-    color: tokens.color.fg,
-    fontWeight: '700',
+  linkChev: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: INK,
+    marginLeft: 6,
   },
-  body: {
-    fontFamily: tokens.font.mono,
-    fontSize: 14,
+  bodyText: {
+    fontFamily: MONO,
+    fontSize: 13,
     lineHeight: 20,
-    color: tokens.color.fg,
+    color: '#666666',
   },
   spacer: {
-    height: tokens.space[5],
+    height: 10,
+  },
+  btn: {
+    borderWidth: 3,
+    borderColor: INK,
+    backgroundColor: '#FF5E5E',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  btnText: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  infoRowSpaced: {
+    marginTop: 5,
+  },
+  infoKey: {
+    fontFamily: MONO,
+    fontSize: 13,
+    color: '#666666',
+  },
+  infoVal: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
   },
 })

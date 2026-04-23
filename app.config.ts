@@ -5,7 +5,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: config.name ?? 'budget-tracker-rn',
   slug: config.slug ?? 'budget-tracker-rn',
   plugins: Array.from(
-    new Set([...(config.plugins ?? []), 'expo-router', 'expo-dev-client']),
+    new Set([...(config.plugins ?? []), 'expo-router', 'expo-dev-client', '@react-native-community/datetimepicker']),
   ),
   ios: {
     ...(config.ios ?? {}),

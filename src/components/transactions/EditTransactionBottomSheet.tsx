@@ -12,15 +12,10 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { DateInput } from '@/src/components/DateInput'
-import type { TransactionRow } from '@/src/db/queries/transactions'
-import {
-  clearAllocationPatch,
-  markPostedPatch,
-} from '@/src/lib/transactions/allocation'
-import * as accountsQ from '@/src/db/queries/accounts'
+import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTripsStore } from '@/src/stores/tripsStore'
@@ -31,7 +26,6 @@ const YELLOW = '#F5C842'
 const RED = '#FF5E5E'
 const MUTED = '#E8E8E0'
 const GREEN = '#3B6D11'
-const TEAL = '#3BCEAC'
 
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
@@ -49,38 +43,54 @@ type Props = {
   onDismiss: () => void
 }
 
-export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
-  function AllocationBottomSheet({ transactionId, onDismiss }, ref) {
-    const update = useTransactionsStore((s) => s.update)
+export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
+  function EditTransactionBottomSheet({ transactionId, onDismiss }, ref) {
     const items = useTransactionsStore((s) => s.items)
+    const update = useTransactionsStore((s) => s.update)
+    const remove = useTransactionsStore((s) => s.remove)
+
     const tx = useMemo(
       () => (transactionId ? items.find((t) => t.id === transactionId) : null),
       [items, transactionId],
     )
 
+    const accounts = useAccountsStore((s) => s.items)
+    const loadAccounts = useAccountsStore((s) => s.load)
     const categories = useCategoriesStore((s) => s.items)
     const loadCategories = useCategoriesStore((s) => s.load)
     const trips = useTripsStore((s) => s.items)
     const loadTrips = useTripsStore((s) => s.load)
-    const [deferDate, setDeferDate] = useState('')
-    const [tripId, setTripId] = useState<number | null>(null)
-    const [myShare, setMyShare] = useState('')
+
+    const [accountId, setAccountId] = useState<string | null>(null)
+    const [date, setDate] = useState('')
+    const [amount, setAmount] = useState('')
+    const [description, setDescription] = useState('')
     const [category, setCategory] = useState<string | null>(null)
+    const [tripId, setTripId] = useState<number | null>(null)
 
     useEffect(() => {
+      loadAccounts()
       loadCategories()
       loadTrips()
-    }, [loadCategories, loadTrips])
+    }, [loadAccounts, loadCategories, loadTrips])
 
     useEffect(() => {
       if (!tx) return
-      setDeferDate(tx.effective_date ?? '')
-      setTripId(tx.trip_id ?? null)
-      setMyShare(tx.my_share != null ? String(tx.my_share) : '')
+      setAccountId(tx.account_id)
+      setDate(tx.date)
+      setAmount(String(tx.amount))
+      setDescription(tx.description)
       setCategory(tx.category ?? null)
+      setTripId(tx.trip_id ?? null)
     }, [tx?.id])
 
-    const snapPoints = useMemo(() => ['52%', '88%'], [])
+    const canSave = useMemo(() => {
+      if (!accountId || !tx) return false
+      const a = Number(amount)
+      return !Number.isNaN(a) && description.trim() !== ''
+    }, [accountId, amount, description, tx])
+
+    const snapPoints = useMemo(() => ['60%', '92%'], [])
 
     const renderBackdrop = useCallback(
       (props: BottomSheetBackdropProps) => (
@@ -94,41 +104,40 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
       [],
     )
 
-    const saveAllocation = () => {
-      if (!tx) return
-      const shareRaw = myShare.trim()
-      const share = shareRaw === '' ? null : Number(shareRaw)
+    const onSave = () => {
+      if (!tx || !canSave) return
       update(tx.id, {
-        effective_date: deferDate.trim() === '' ? null : deferDate.trim(),
-        trip_id: tripId,
-        my_share: share !== null && !Number.isNaN(share) ? share : null,
+        account_id: accountId!,
+        date,
+        amount: Number(amount),
+        description: description.trim(),
         category,
-        detail_category: null,
-      } as Partial<TransactionRow>)
+        trip_id: tripId,
+        source: 'manual',
+      })
+      ;(ref as React.RefObject<BottomSheetModal>)?.current?.dismiss()
     }
 
-    const onClear = () => {
+    const onDelete = () => {
       if (!tx) return
-      update(tx.id, clearAllocationPatch())
-      setDeferDate('')
-      setTripId(null)
-      setMyShare('')
-      setCategory(null)
+      Alert.alert('Delete transaction', 'This cannot be undone.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            remove(tx.id)
+            ;(ref as React.RefObject<BottomSheetModal>)?.current?.dismiss()
+          },
+        },
+      ])
     }
 
-    const onMarkPosted = () => {
-      if (!tx) return
-      update(tx.id, markPostedPatch())
-    }
-
+    const txAccount = useMemo(
+      () => accounts.find((a) => a.id === tx?.account_id),
+      [accounts, tx?.account_id],
+    )
     const isIncome = tx ? tx.amount >= 0 : false
-
-    const accountInfo = useMemo(() => {
-      if (!tx) return null
-      const acct = accountsQ.listAllAccounts().find((a) => a.id === tx.account_id)
-      if (!acct) return tx.account_label ?? null
-      return [acct.institution, acct.name].filter(Boolean).join(' · ')
-    }, [tx?.account_id])
 
     return (
       <BottomSheetModal
@@ -154,40 +163,53 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
                 </Text>
               </View>
               <Text style={styles.summaryMeta}>
-                {tx.date}{accountInfo ? ` · ${accountInfo}` : ''}
-                {tx.pending === 1 ? <Text style={styles.pendingBadge}>{' PENDING'}</Text> : null}
+                {tx.date}
+                {tx.category ? ` · ${tx.category}` : ''}
+                {txAccount ? ` · ${txAccount.name}` : ''}
               </Text>
             </View>
 
-            {/* Defer date */}
-            <Text style={styles.fieldLabel}>Defer to date</Text>
-            <DateInput value={deferDate} onChange={setDeferDate} style={styles.fieldInput} />
-
-            {/* Trip */}
-            <Text style={styles.fieldLabel}>Trip</Text>
+            {/* Account */}
+            <Text style={styles.fieldLabel}>Account</Text>
             <View style={styles.chips}>
-              <Pressable onPress={() => setTripId(null)} style={[styles.chip, tripId === null && styles.chipOn]}>
-                <Text style={styles.chipText}>None</Text>
-              </Pressable>
-              {trips.map((tr) => (
-                <Pressable key={tr.id} onPress={() => setTripId(tr.id)} style={[styles.chip, tripId === tr.id && styles.chipOn]}>
-                  <Text style={styles.chipText}>{tr.name}</Text>
+              {accounts.map((ac) => (
+                <Pressable
+                  key={ac.id}
+                  onPress={() => setAccountId(ac.id)}
+                  style={[styles.chip, accountId === ac.id && styles.chipOn]}
+                >
+                  <Text style={styles.chipText}>{ac.name}</Text>
                 </Pressable>
               ))}
             </View>
-            {/* My share */}
-            <Text style={styles.fieldLabel}>My share (optional)</Text>
+
+            {/* Date */}
+            <Text style={styles.fieldLabel}>Date</Text>
+            <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
+
+            {/* Amount */}
+            <Text style={styles.fieldLabel}>Amount (negative = spend)</Text>
             <BottomSheetTextInput
               style={styles.fieldInput}
-              value={myShare}
-              onChangeText={setMyShare}
+              value={amount}
+              onChangeText={setAmount}
               keyboardType="decimal-pad"
-              placeholder="Split / share amount"
+              placeholder="-0.00"
               placeholderTextColor="#999999"
             />
 
-            {/* Category override */}
-            <Text style={styles.fieldLabel}>Category override</Text>
+            {/* Description */}
+            <Text style={styles.fieldLabel}>Description</Text>
+            <BottomSheetTextInput
+              style={styles.fieldInput}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Merchant name or note…"
+              placeholderTextColor="#999999"
+            />
+
+            {/* Category */}
+            <Text style={styles.fieldLabel}>Category (optional)</Text>
             <View style={styles.chips}>
               <Pressable onPress={() => setCategory(null)} style={[styles.chip, category === null && styles.chipOn]}>
                 <Text style={styles.chipText}>None</Text>
@@ -207,23 +229,37 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
               ))}
             </View>
 
+            {/* Trip */}
+            <Text style={styles.fieldLabel}>Trip (optional)</Text>
+            <View style={styles.chips}>
+              <Pressable onPress={() => setTripId(null)} style={[styles.chip, tripId === null && styles.chipOn]}>
+                <Text style={styles.chipText}>None</Text>
+              </Pressable>
+              {trips.map((t) => (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setTripId(t.id)}
+                  style={[styles.chip, tripId === t.id && styles.chipOn]}
+                >
+                  <Text style={styles.chipText}>{t.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+
             {/* Actions */}
             <View style={styles.btnGroup}>
-              <Pressable onPress={saveAllocation} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-                <View style={[styles.btn, styles.btnYellow]}>
-                  <Text style={styles.btnText}>Save allocation</Text>
+              <Pressable
+                onPress={onSave}
+                disabled={!canSave}
+                style={({ pressed }) => pressed && { opacity: 0.85 }}
+              >
+                <View style={[styles.btn, styles.btnYellow, !canSave && styles.btnDisabled]}>
+                  <Text style={styles.btnText}>Save</Text>
                 </View>
               </Pressable>
-              {tx.pending === 1 ? (
-                <Pressable onPress={onMarkPosted} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-                  <View style={[styles.btn, styles.btnTeal]}>
-                    <Text style={styles.btnText}>Mark as posted</Text>
-                  </View>
-                </Pressable>
-              ) : null}
-              <Pressable onPress={onClear} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-                <View style={[styles.btn, styles.btnNeutral]}>
-                  <Text style={styles.btnText}>Clear allocation</Text>
+              <Pressable onPress={onDelete} style={({ pressed }) => pressed && { opacity: 0.85 }}>
+                <View style={[styles.btn, styles.btnRed]}>
+                  <Text style={styles.btnText}>Delete</Text>
                 </View>
               </Pressable>
             </View>
@@ -287,13 +323,6 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 3,
   },
-  pendingBadge: {
-    fontFamily: MONO,
-    fontSize: 12,
-    fontWeight: '800',
-    color: INK,
-    backgroundColor: YELLOW,
-  },
   fieldLabel: {
     fontFamily: MONO,
     fontSize: 12,
@@ -336,14 +365,15 @@ const styles = StyleSheet.create({
     color: INK,
   },
   btnGroup: {
+    flexDirection: 'row',
     gap: 8,
     marginTop: 16,
   },
   btn: {
+    flex: 1,
     borderWidth: 3,
     borderColor: INK,
     paddingVertical: 10,
-    paddingHorizontal: 10,
     alignItems: 'center',
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
@@ -352,8 +382,8 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   btnYellow: { backgroundColor: YELLOW },
-  btnTeal: { backgroundColor: TEAL },
-  btnNeutral: { backgroundColor: CREAM },
+  btnRed: { backgroundColor: RED },
+  btnDisabled: { opacity: 0.45 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,
