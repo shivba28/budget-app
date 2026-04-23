@@ -13,7 +13,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shewbaka.budgettracker",
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
+        "NSFaceIDUsageDescription": "Unlock Budget Tracker with Face ID, Touch ID, or your device passcode when enabled.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,6 +31,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-dev-client"]
+    "plugins": [
+      "expo-dev-client"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "045e1335-3c6d-4cf6-8e45-6f56a9837acf"
+      }
+    }
   }
 }

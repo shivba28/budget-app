@@ -18,6 +18,7 @@ export default function AppStackLayout() {
       <Stack.Screen name="manual-accounts" />
       <Stack.Screen name="bank-accounts" />
       <Stack.Screen name="transaction-new" />
+      <Stack.Screen name="trip-new" />
       <Stack.Screen name="transaction-edit/[id]" />
     </Stack>
   )

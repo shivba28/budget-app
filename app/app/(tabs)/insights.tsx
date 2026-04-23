@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Modal,
   Pressable,
@@ -25,6 +25,7 @@ import * as budgetsQ from '@/src/db/queries/budgets'
 import * as tripsQ from '@/src/db/queries/trips'
 import * as txq from '@/src/db/queries/transactions'
 import { analyzeLocalTransactions } from '@/src/lib/insights/analyze'
+import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import {
   dismissAnomaly,
@@ -73,6 +74,15 @@ function colorForCategory(category: string): string {
   return CATEGORY_COLORS[idx] ?? tokens.color.accent
 }
 
+function resolveCategoryColor(label: string, categoryRows: { label: string; color: string | null }[]): string {
+  const key = label.trim()
+  if (!key) return colorForCategory(label)
+  const hit = categoryRows.find((c) => c.label === key)
+  const c = hit?.color?.trim()
+  if (c) return c
+  return colorForCategory(label)
+}
+
 function nowYearMonth(): { year: number; month: number } {
   const d = new Date()
   return { year: d.getFullYear(), month: d.getMonth() + 1 }
@@ -119,12 +129,12 @@ function formatMoney(n: number): string {
   return v.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
 }
 
-const DONUT_SIZE = 180
+const DONUT_SIZE = 200
 const STROKE_WIDTH = 28
 const RADIUS = (DONUT_SIZE - STROKE_WIDTH) / 2
 const CENTER = DONUT_SIZE / 2
 // With thick strokes + round caps, small angular gaps visually overlap.
-const GAP_DEGREES = 7
+const GAP_DEGREES = 1
 
 type DonutSliceProps = {
   label: string
@@ -144,13 +154,28 @@ function DonutSlice({
 }: DonutSliceProps) {
   const startSV = useSharedValue(startAngle)
   const sweepSV = useSharedValue(sweepAngle)
+  const didMount = useRef(false)
 
+  // Morph geometry when data changes (month / range) without replaying.
   useEffect(() => {
-    // Animate geometry changes in-place (Rakha-like), instead of remounting the whole chart.
     startSV.value = withTiming(startAngle, {
       duration: 520,
       easing: Easing.out(Easing.cubic),
     })
+    sweepSV.value = withTiming(sweepAngle, {
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAngle, sweepAngle])
+
+  // Replay the sweep only when the screen comes back into focus.
+  useEffect(() => {
+    if (!didMount.current) {
+      didMount.current = true
+      return
+    }
+    sweepSV.value = 0
     sweepSV.value = withDelay(
       delay,
       withTiming(sweepAngle, {
@@ -159,7 +184,7 @@ function DonutSlice({
       }),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startAngle, sweepAngle, delay, animationKey])
+  }, [animationKey])
 
   const path = useDerivedValue(() => {
     const currentSweep = Math.max(0, Math.min(359.999, sweepSV.value))
@@ -248,7 +273,7 @@ function CategoryDonut({
   return (
     <View style={styles.donutWrap}>
       <View style={{ width: DONUT_SIZE, height: DONUT_SIZE }}>
-        <Canvas style={{ width: DONUT_SIZE, height: DONUT_SIZE }}>
+        <Canvas style={{ width: DONUT_SIZE, height: DONUT_SIZE + 1 }}>
         {/* Background track */}
         <Path
           path={(() => {
@@ -257,7 +282,7 @@ function CategoryDonut({
           })()}
           style="stroke"
           strokeWidth={STROKE_WIDTH}
-          color={tokens.color.muted}
+          color={"transparent"}
         />
         {slices.map((s) => (
           <DonutSlice
@@ -303,6 +328,39 @@ function CategoryLegend({
   )
 }
 
+function buildDonutItems(
+  rows: { category: string; totalSpend: number }[],
+  categoryRows: { label: string; color: string | null }[],
+): { label: string; value: number; color: string }[] {
+  const MAX_SLICES = 8
+  const mapped = rows.map((r) => ({
+    label: r.category,
+    value: r.totalSpend,
+    color: resolveCategoryColor(r.category, categoryRows),
+  }))
+  const byLabel = (a: { label: string }, b: { label: string }) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+
+  if (mapped.length <= MAX_SLICES) {
+    return [...mapped].sort(byLabel)
+  }
+
+  const top = mapped.slice(0, MAX_SLICES)
+  const otherTotal = mapped.slice(MAX_SLICES).reduce((s, x) => s + x.value, 0)
+  const named = [...top].sort(byLabel)
+  if (otherTotal > 0) {
+    return [
+      ...named,
+      {
+        label: 'Other',
+        value: otherTotal,
+        color: tokens.color.muted,
+      },
+    ]
+  }
+  return named
+}
+
 export default function Insights() {
   const [navYm, setNavYm] = useState(() => nowYearMonth())
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null)
@@ -314,6 +372,8 @@ export default function Insights() {
 
   /** Re-run insights when the transactions store refreshes (e.g. after sync). */
   const txStoreItems = useTransactionsStore((s) => s.items)
+  const categoryRows = useCategoriesStore((s) => s.items)
+  const loadCategories = useCategoriesStore((s) => s.load)
 
   const focusYm = navYm
   const focusKey = monthKeyFromParts(focusYm.year, focusYm.month)
@@ -325,12 +385,9 @@ export default function Insights() {
   useFocusEffect(
     useCallback(() => {
       setPieRev((n) => n + 1)
+      loadCategories()
     }, []),
   )
-
-  useEffect(() => {
-    setPieRev((n) => n + 1)
-  }, [focusKey, spendRange.start, spendRange.end])
 
   const data = useMemo(() => {
     void dismissRev
@@ -437,7 +494,10 @@ export default function Insights() {
 
   return (
     <BrutalScreen title="Insights" subtitle="Offline analytics (local SQLite)">
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.monthNav}>
           <Pressable
             onPress={monthNavPrev}
@@ -503,15 +563,11 @@ export default function Insights() {
           </View>
         ) : (
           <>
-            <View style={styles.card} key={`cat-${focusKey}-${spendRange.start}-${data.periodTotalSpend}`}>
+            <View style={styles.card}>
               <Text style={styles.h2}>Spend by category</Text>
               <Text style={styles.rangeCaption}>{data.periodLabel}</Text>
               {(() => {
-                const items = data.categoryTotalsDesc.map((r) => ({
-                  label: r.category,
-                  value: r.totalSpend,
-                  color: colorForCategory(r.category),
-                }))
+                const items = buildDonutItems(data.categoryTotalsDesc, categoryRows)
                 return (
                   <>
                     <CategoryDonut animationKey={pieRev} values={items} />
@@ -806,7 +862,7 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.color.accent,
   },
   donutWrap: {
-    height: 190,
+    height: 220,
     width: '100%',
     alignSelf: 'center',
     alignItems: 'center',

@@ -22,6 +22,13 @@ const links: {
   },
 ]
 
+const ICON: Record<string, string> = {
+  '/app/categories': '🏷',
+  '/app/budgets': '📊',
+  '/app/manual-accounts': '✍️',
+  '/app/bank-accounts': '🏦',
+}
+
 export default function Settings() {
   const router = useRouter()
   const signOut = useAuthStore((s) => s.signOut)
@@ -48,7 +55,7 @@ export default function Settings() {
   }
 
   return (
-    <BrutalScreen title="Settings" subtitle="Data & security (local only)">
+    <BrutalScreen title="Settings">
       <BrutalCard>
         <Text style={styles.section}>DATA</Text>
         {links.map((l) => (
@@ -57,17 +64,17 @@ export default function Settings() {
             onPress={() => router.push(l.href)}
             style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.75 }]}
           >
-            <Text style={styles.linkText}>{l.label}</Text>
+            <View style={styles.linkLeft}>
+              <Text style={styles.icon}>{ICON[l.href] ?? '•'}</Text>
+              <Text style={styles.linkText}>{l.label}</Text>
+            </View>
             <Text style={styles.chev}>›</Text>
           </Pressable>
         ))}
       </BrutalCard>
       <View style={styles.spacer} />
       <BrutalCard>
-        <Text style={styles.body}>
-          Unlock uses device biometrics when enrolled, with your 4-digit PIN as backup.
-          Nothing is sent to a server.
-        </Text>
+        <Text style={styles.body}>Unlock uses biometrics when available, with your PIN as backup.</Text>
         <View style={styles.spacer} />
         <BrutalButton title="Remove PIN & lock again" variant="neutral" onPress={onSignOut} />
       </BrutalCard>
@@ -92,11 +99,25 @@ const styles = StyleSheet.create({
     borderTopWidth: tokens.border.w2,
     borderColor: tokens.color.border,
   },
+  linkLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tokens.space[3],
+    flex: 1,
+    paddingRight: tokens.space[3],
+  },
+  icon: {
+    width: 24,
+    textAlign: 'center',
+    fontSize: 16,
+    color: tokens.color.fg,
+  },
   linkText: {
     fontFamily: tokens.font.mono,
     fontSize: 15,
     fontWeight: '700',
     color: tokens.color.fg,
+    flex: 1,
   },
   chev: {
     fontSize: 22,

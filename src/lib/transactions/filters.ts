@@ -1,12 +1,16 @@
 import type { TransactionRow } from '@/src/db/queries/transactions'
 
-export type DatePreset = 'all' | 'this_month' | 'last_30' | 'this_year'
+export type DatePreset = 'all' | 'this_month' | 'last_30' | 'this_year' | 'custom'
 export type CashFlow = 'all' | 'in' | 'out'
 export type SourceFilter = 'all' | 'manual' | 'bank'
+
+export type CustomDateRange = { start: string; end: string }
 
 export type TransactionListFilters = {
   search: string
   datePreset: DatePreset
+  /** Used when datePreset === 'custom' (YYYY-MM-DD). */
+  customDateRange?: CustomDateRange
   /** `all` | `__none__` (uncategorized) | category label */
   category: string | 'all' | '__none__'
   cashFlow: CashFlow
@@ -39,7 +43,21 @@ function inLast30Days(isoDate: string): boolean {
   return t >= cutoff
 }
 
-function passesDatePreset(tx: TransactionRow, preset: DatePreset): boolean {
+function inCustomRange(isoDate: string, range: CustomDateRange): boolean {
+  const t = Date.parse(isoDate.includes('T') ? isoDate : `${isoDate}T12:00:00`)
+  const a = Date.parse(`${range.start}T00:00:00`)
+  const b = Date.parse(`${range.end}T23:59:59`)
+  if ([t, a, b].some(Number.isNaN)) return false
+  const lo = Math.min(a, b)
+  const hi = Math.max(a, b)
+  return t >= lo && t <= hi
+}
+
+function passesDatePreset(
+  tx: TransactionRow,
+  preset: DatePreset,
+  customDateRange?: CustomDateRange,
+): boolean {
   const sd = sortDate(tx)
   if (preset === 'all') return true
   if (preset === 'this_month') {
@@ -52,6 +70,7 @@ function passesDatePreset(tx: TransactionRow, preset: DatePreset): boolean {
     const y = String(new Date().getFullYear())
     return sd.slice(0, 4) === y
   }
+  if (preset === 'custom' && customDateRange) return inCustomRange(sd, customDateRange)
   return true
 }
 
@@ -91,7 +110,7 @@ export function applyTransactionFilters(
     (tx) =>
       passesPendingVisibility(tx, f.includeUnconfirmedPending) &&
       passesSearch(tx, f.search) &&
-      passesDatePreset(tx, f.datePreset) &&
+      passesDatePreset(tx, f.datePreset, f.customDateRange) &&
       passesCategory(tx, f.category) &&
       passesCashFlow(tx, f.cashFlow) &&
       passesSource(tx, f.source),

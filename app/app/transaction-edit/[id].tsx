@@ -128,7 +128,11 @@ export default function TransactionEditScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
           <BrutalBackRow onBack={() => router.back()} />
           <BrutalCard>
             <Text style={styles.blockLabel}>Account</Text>

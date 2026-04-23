@@ -9,12 +9,7 @@ import {
 } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 
-import {
-  BrutalButton,
-  BrutalCard,
-  BrutalScreen,
-  BrutalTextField,
-} from '@/src/components/Brutalist'
+import { BrutalScreen } from '@/src/components/Brutalist'
 import { useTripsStore } from '@/src/stores/tripsStore'
 import { tokens } from '@/src/theme/tokens'
 
@@ -22,8 +17,6 @@ export default function TripsListScreen() {
   const router = useRouter()
   const items = useTripsStore((s) => s.items)
   const load = useTripsStore((s) => s.load)
-  const add = useTripsStore((s) => s.add)
-  const [name, setName] = useState('')
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
@@ -42,34 +35,20 @@ export default function TripsListScreen() {
     setRefreshing(false)
   }, [load])
 
-  const onAdd = () => {
-    const n = name.trim()
-    if (!n) return
-    const id = add({ name: n })
-    setName('')
-    router.push(`/app/(tabs)/trips/${id}`)
-  }
-
   return (
-    <BrutalScreen title="Trips" subtitle="Tag spending by getaway">
-      <BrutalCard>
-        <BrutalTextField
-          label="New trip name"
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Iceland 2026"
-        />
-        <BrutalButton title="Create trip" onPress={onAdd} />
-      </BrutalCard>
+    <BrutalScreen title="Trips" subtitle="Tag spending by getaway · use + below to add a trip">
       <Text style={styles.section}>YOUR TRIPS</Text>
       <FlatList
         data={items}
         keyExtractor={(item) => String(item.id)}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>No trips yet — add one above.</Text>
+          <Text style={styles.empty}>
+            No trips yet — tap the + button in the tab bar to create one.
+          </Text>
         }
         renderItem={({ item }) => (
           <Pressable
@@ -90,7 +69,7 @@ export default function TripsListScreen() {
 
 const styles = StyleSheet.create({
   section: {
-    marginTop: tokens.space[5],
+    marginTop: tokens.space[2],
     marginBottom: tokens.space[3],
     fontSize: 11,
     fontWeight: '800',

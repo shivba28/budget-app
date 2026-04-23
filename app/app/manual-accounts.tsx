@@ -81,6 +81,7 @@ export default function ManualAccountsScreen() {
       <FlatList
         data={items}
         keyExtractor={(a) => a.id}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <Text style={styles.empty}>No manual accounts.</Text>
         }

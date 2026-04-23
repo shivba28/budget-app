@@ -13,6 +13,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       config.ios?.bundleIdentifier ?? 'com.shewbaka.budgettracker',
     infoPlist: {
       ...(config.ios?.infoPlist as Record<string, unknown> | undefined),
+      // Allow 120Hz (ProMotion) on supported iPhones.
+      CADisableMinimumFrameDurationOnPhone: true,
       NSFaceIDUsageDescription:
         'Unlock Budget Tracker with Face ID, Touch ID, or your device passcode when enabled.',
     },

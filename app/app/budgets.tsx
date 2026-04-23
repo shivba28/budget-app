@@ -120,6 +120,7 @@ export default function BudgetsScreen() {
       <FlatList
         data={items}
         keyExtractor={(b) => String(b.id)}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <Text style={styles.empty}>No budget rows for this month.</Text>
         }

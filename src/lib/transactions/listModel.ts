@@ -6,10 +6,7 @@ export type TxListRow =
   | { type: 'header'; id: string; monthKey: string; count: number }
   | { type: 'transaction'; id: string; tx: TransactionRow }
 
-export function buildGroupedRows(
-  transactions: TransactionRow[],
-  collapsedMonthKeys: Set<string>,
-): { rows: TxListRow[]; stickyHeaderIndices: number[] } {
+function groupTransactionsByMonth(transactions: TransactionRow[]) {
   const sorted = [...transactions].sort((a, b) =>
     sortDate(b).localeCompare(sortDate(a)),
   )
@@ -23,6 +20,19 @@ export function buildGroupedRows(
   }
 
   const months = [...byMonth.keys()].sort((a, b) => b.localeCompare(a))
+  return { months, byMonth }
+}
+
+/** Month keys newest-first (same order as `buildGroupedRows` headers). */
+export function getMonthKeysDescending(transactions: TransactionRow[]): string[] {
+  return groupTransactionsByMonth(transactions).months
+}
+
+export function buildGroupedRows(
+  transactions: TransactionRow[],
+  collapsedMonthKeys: Set<string>,
+): { rows: TxListRow[]; stickyHeaderIndices: number[] } {
+  const { months, byMonth } = groupTransactionsByMonth(transactions)
 
   const rows: TxListRow[] = []
   const stickyHeaderIndices: number[] = []

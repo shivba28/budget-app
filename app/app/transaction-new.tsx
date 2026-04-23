@@ -85,7 +85,11 @@ export default function TransactionNewScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
           <BrutalBackRow onBack={() => router.back()} />
           {accounts.length === 0 ? (
             <Text style={styles.warn}>

@@ -120,7 +120,10 @@ export default function BankAccountsScreen() {
 
   return (
     <BrutalScreen title="Bank accounts" subtitle="Teller · local device only">
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         <BrutalBackRow onBack={() => router.back()} />
         {busy ? (
           <ActivityIndicator color={themeTokens.color.fg} style={styles.loader} />

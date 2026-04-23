@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
 import {
@@ -25,6 +25,28 @@ export default function CategoriesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editColor, setEditColor] = useState('')
+  const [pickerOpen, setPickerOpen] = useState<null | 'create' | 'edit'>(null)
+
+  const PALETTE = useMemo(
+    () => [
+      '#111111',
+      '#FFFFFF',
+      '#F94144',
+      '#F3722C',
+      '#F8961E',
+      '#F9C74F',
+      '#90BE6D',
+      '#43AA8B',
+      '#277DA1',
+      '#9B5DE5',
+      '#F15BB5',
+      '#00BBF9',
+      tokens.color.accent,
+      tokens.color.debit,
+      tokens.color.credit,
+    ],
+    [],
+  )
 
   useEffect(() => {
     load()
@@ -73,19 +95,36 @@ export default function CategoriesScreen() {
       <BrutalBackRow onBack={() => router.back()} />
       <BrutalCard>
         <BrutalTextField label="Name" value={label} onChangeText={setLabel} />
-        <BrutalTextField
-          label="Color (hex, optional)"
-          value={color}
-          onChangeText={setColor}
-          placeholder="#111111"
-          autoCapitalize="none"
-        />
+        <View style={styles.colorRow}>
+          <View
+            style={[
+              styles.colorPreview,
+              color.trim() ? { backgroundColor: color.trim() } : styles.colorPreviewEmpty,
+            ]}
+          />
+          <View style={{ flex: 1 }}>
+            <BrutalTextField
+              label="Color (hex, optional)"
+              value={color}
+              onChangeText={setColor}
+              placeholder="#111111"
+              autoCapitalize="none"
+            />
+            <Pressable
+              onPress={() => setPickerOpen('create')}
+              style={({ pressed }) => [styles.pickBtn, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.pickBtnText}>Pick a color</Text>
+            </Pressable>
+          </View>
+        </View>
         <BrutalButton title="Add category" onPress={onCreate} />
       </BrutalCard>
       <Text style={styles.section}>ALL</Text>
       <FlatList
         data={items}
         keyExtractor={(c) => c.id}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <Text style={styles.empty}>No categories yet.</Text>
         }
@@ -104,6 +143,12 @@ export default function CategoriesScreen() {
                   onChangeText={setEditColor}
                   autoCapitalize="none"
                 />
+                <Pressable
+                  onPress={() => setPickerOpen('edit')}
+                  style={({ pressed }) => [styles.pickBtn, pressed && { opacity: 0.8 }]}
+                >
+                  <Text style={styles.pickBtnText}>Pick a color</Text>
+                </Pressable>
                 <View style={styles.rowActions}>
                   <BrutalButton title="Save" onPress={onSaveEdit} />
                   <BrutalButton
@@ -140,6 +185,35 @@ export default function CategoriesScreen() {
         )}
         contentContainerStyle={styles.list}
       />
+
+      <Modal visible={pickerOpen !== null} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pick a color</Text>
+            <View style={styles.paletteGrid}>
+              {PALETTE.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => {
+                    if (pickerOpen === 'edit') setEditColor(c)
+                    else setColor(c)
+                    setPickerOpen(null)
+                  }}
+                  style={({ pressed }) => [styles.swatchBtn, pressed && { opacity: 0.8 }]}
+                >
+                  <View style={[styles.swatchDot, { backgroundColor: c }]} />
+                </Pressable>
+              ))}
+            </View>
+            <Pressable
+              onPress={() => setPickerOpen(null)}
+              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.closeBtnText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </BrutalScreen>
   )
 }
@@ -193,5 +267,88 @@ const styles = StyleSheet.create({
   },
   rowActions: {
     gap: tokens.space[2],
+  },
+  colorRow: {
+    flexDirection: 'row',
+    gap: tokens.space[3],
+    alignItems: 'flex-start',
+  },
+  colorPreview: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    marginTop: 22,
+  },
+  colorPreviewEmpty: {
+    backgroundColor: tokens.color.muted,
+  },
+  pickBtn: {
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.card,
+    paddingVertical: tokens.space[2],
+    paddingHorizontal: tokens.space[3],
+    marginBottom: tokens.space[4],
+  },
+  pickBtnText: {
+    fontFamily: tokens.font.mono,
+    fontWeight: '800',
+    color: tokens.color.fg,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: tokens.space[4],
+  },
+  modalCard: {
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.card,
+    padding: tokens.space[4],
+  },
+  modalTitle: {
+    fontFamily: tokens.font.mono,
+    fontWeight: '900',
+    fontSize: 16,
+    color: tokens.color.fg,
+    marginBottom: tokens.space[3],
+  },
+  paletteGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: tokens.space[2],
+    marginBottom: tokens.space[4],
+  },
+  swatchBtn: {
+    width: 44,
+    height: 44,
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swatchDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: tokens.border.w2,
+    borderColor: tokens.color.border,
+  },
+  closeBtn: {
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.accent,
+    paddingVertical: tokens.space[3],
+    paddingHorizontal: tokens.space[3],
+    alignItems: 'center',
+  },
+  closeBtnText: {
+    fontFamily: tokens.font.mono,
+    fontWeight: '900',
+    color: tokens.color.fg,
   },
 })
