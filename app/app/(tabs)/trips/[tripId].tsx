@@ -20,6 +20,7 @@ const CREAM = '#FAFAF5'
 const INK = '#111111'
 const MUTED = '#E8E8E0'
 const YELLOW = '#F5C842'
+const RED = '#FF5E5E'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
 function formatMoney(n: number): string {
@@ -70,6 +71,16 @@ export default function TripDetailScreen() {
       : t.amount < 0 ? Math.abs(t.amount) : 0
     return sum + amt
   }, 0), [tripTxns])
+
+  const isDirty = useMemo(() => {
+    if (!trip) return false
+    return (
+      name.trim() !== trip.name ||
+      budget !== (trip.budget_limit != null ? String(trip.budget_limit) : '') ||
+      start !== (trip.start_date ?? '') ||
+      end !== (trip.end_date ?? '')
+    )
+  }, [trip, name, budget, start, end])
 
   const onSave = () => {
     if (!trip) return
@@ -141,15 +152,19 @@ export default function TripDetailScreen() {
           <Text style={styles.fieldLabel}>End date</Text>
           <DateInput value={end} onChange={setEnd} style={[styles.fieldInput, { marginBottom: 12 }]} />
           <View style={styles.btnGroup}>
-            <Pressable onPress={onSave} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-              <View style={[styles.btn, styles.btnYellow]}>
-                <Text style={styles.btnText}>Save</Text>
-              </View>
+            <Pressable onPress={onSave} disabled={!isDirty}>
+              {({ pressed }) => (
+                <View style={[styles.btn, styles.btnYellow, !isDirty && styles.btnDisabled, pressed && isDirty && styles.btnPressed]} pointerEvents="none">
+                  <Text style={styles.btnText}>Save</Text>
+                </View>
+              )}
             </Pressable>
-            <Pressable onPress={onDelete} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-              <View style={[styles.btn, styles.btnNeutral]}>
-                <Text style={styles.btnText}>Delete trip</Text>
-              </View>
+            <Pressable onPress={onDelete}>
+              {({ pressed }) => (
+                <View style={[styles.btn, styles.btnRed, pressed && styles.btnPressed]} pointerEvents="none">
+                  <Text style={styles.btnText}>Delete trip</Text>
+                </View>
+              )}
             </Pressable>
           </View>
         </View>
@@ -268,7 +283,9 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   btnYellow: { backgroundColor: YELLOW },
-  btnNeutral: { backgroundColor: CREAM },
+  btnRed: { backgroundColor: RED },
+  btnDisabled: { opacity: 0.4 },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,
@@ -294,12 +311,12 @@ const styles = StyleSheet.create({
   },
   spendLabel: {
     fontFamily: MONO,
-    fontSize: 12,
+    fontSize: 15,
     color: INK,
   },
   spendTotal: {
     fontFamily: MONO,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: INK,
   },
@@ -316,14 +333,14 @@ const styles = StyleSheet.create({
   },
   txDesc: {
     fontFamily: MONO,
-    fontSize: 11,
-    color: '#666666',
+    fontSize: 14,
+    color: INK,
     flex: 1,
     marginRight: 8,
   },
   txAmt: {
     fontFamily: MONO,
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '800',
     color: INK,
   },

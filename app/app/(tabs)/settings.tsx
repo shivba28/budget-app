@@ -43,13 +43,13 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <View style={styles.topbar}>
+    <View style={styles.screen}>
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.topbarTitle}>Settings</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 76 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Data card */}
@@ -78,13 +78,12 @@ export default function SettingsScreen() {
             Unlock uses biometrics when available, with your PIN as backup.
           </Text>
           <View style={styles.spacer} />
-          <Pressable
-            onPress={onSignOut}
-            style={({ pressed }) => pressed && { opacity: 0.8 }}
-          >
-            <View style={styles.btn}>
-              <Text style={styles.btnText}>Remove PIN &amp; lock again</Text>
-            </View>
+          <Pressable onPress={onSignOut}>
+            {({ pressed }) => (
+              <View style={[styles.btn, pressed && styles.btnPressed]} pointerEvents="none">
+                <Text style={styles.btnText}>Remove PIN &amp; lock again</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
@@ -113,15 +112,14 @@ const styles = StyleSheet.create({
   topbar: {
     backgroundColor: INK,
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
   },
   topbarTitle: {
     fontFamily: MONO,
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: CREAM,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -207,6 +205,7 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 3,
   },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,

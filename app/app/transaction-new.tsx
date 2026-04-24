@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { DateInput } from '@/src/components/DateInput'
 import {
@@ -25,6 +26,7 @@ import { useTripsStore } from '@/src/stores/tripsStore'
 import { tokens } from '@/src/theme/tokens'
 
 export default function TransactionNewScreen() {
+  const insets = useSafeAreaInsets()
   const router = useRouter()
   const accounts = useAccountsStore((s) => s.items)
   const loadAccounts = useAccountsStore((s) => s.load)
@@ -88,7 +90,7 @@ export default function TransactionNewScreen() {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
         >
           <BrutalBackRow onBack={() => router.back()} />
@@ -104,9 +106,10 @@ export default function TransactionNewScreen() {
                 <Pressable
                   key={ac.id}
                   onPress={() => setAccountId(ac.id)}
-                  style={[
+                  style={({ pressed }) => [
                     styles.chip,
                     accountId === ac.id && styles.chipOn,
+                    pressed && { opacity: 0.7 },
                   ]}
                 >
                   <Text style={styles.chipText}>{ac.name}</Text>
@@ -130,7 +133,7 @@ export default function TransactionNewScreen() {
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setCategory(null)}
-                style={[styles.chip, category === null && styles.chipOn]}
+                style={({ pressed }) => [styles.chip, category === null && styles.chipOn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.chipText}>None</Text>
               </Pressable>
@@ -138,7 +141,7 @@ export default function TransactionNewScreen() {
                 <Pressable
                   key={c.id}
                   onPress={() => setCategory(c.label)}
-                  style={[styles.chip, category === c.label && styles.chipOn]}
+                  style={({ pressed }) => [styles.chip, category === c.label && styles.chipOn, pressed && { opacity: 0.7 }]}
                 >
                   <Text style={styles.chipText}>{c.label}</Text>
                 </Pressable>
@@ -148,7 +151,7 @@ export default function TransactionNewScreen() {
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setTripId(null)}
-                style={[styles.chip, tripId === null && styles.chipOn]}
+                style={({ pressed }) => [styles.chip, tripId === null && styles.chipOn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.chipText}>None</Text>
               </Pressable>
@@ -156,7 +159,7 @@ export default function TransactionNewScreen() {
                 <Pressable
                   key={t.id}
                   onPress={() => setTripId(t.id)}
-                  style={[styles.chip, tripId === t.id && styles.chipOn]}
+                  style={({ pressed }) => [styles.chip, tripId === t.id && styles.chipOn, pressed && { opacity: 0.7 }]}
                 >
                   <Text style={styles.chipText}>{t.name}</Text>
                 </Pressable>
@@ -172,7 +175,7 @@ export default function TransactionNewScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  scroll: { paddingBottom: tokens.space[6] + tokens.space[6] },
+  scroll: { paddingBottom: 0 },
   warn: {
     fontFamily: tokens.font.mono,
     color: tokens.color.debit,

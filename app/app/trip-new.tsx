@@ -41,7 +41,7 @@ export default function TripNewScreen() {
         <Text style={styles.topbarTitle}>New trip</Text>
         <Text style={styles.topbarSub}>Name your getaway</Text>
       </View>
-      <View style={styles.body}>
+      <View style={[styles.body, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.card}>
           <Text style={styles.fieldLabel}>New trip name</Text>
           <TextInput
@@ -53,10 +53,12 @@ export default function TripNewScreen() {
             autoFocus
             autoCorrect={false}
           />
-          <Pressable onPress={onCreate} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-            <View style={[styles.btn, styles.btnYellow]}>
-              <Text style={styles.btnText}>Create trip</Text>
-            </View>
+          <Pressable onPress={onCreate}>
+            {({ pressed }) => (
+              <View style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]} pointerEvents="none">
+                <Text style={styles.btnText}>Create trip</Text>
+              </View>
+            )}
           </Pressable>
         </View>
       </View>
@@ -150,6 +152,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   btnYellow: { backgroundColor: YELLOW },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,

@@ -128,7 +128,7 @@ export default function TransactionEditScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.topbar}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}>
             <Text style={styles.backChev}>‹</Text>
           </Pressable>
           <Text style={styles.tbTitle}>Edit transaction</Text>
@@ -190,7 +190,7 @@ export default function TransactionEditScreen() {
                 <Pressable
                   key={ac.id}
                   onPress={() => setAccountId(ac.id)}
-                  style={[styles.chip, accountId === ac.id && styles.chipOn]}
+                  style={({ pressed }) => [styles.chip, accountId === ac.id && styles.chipOn, pressed && { opacity: 0.7 }]}
                 >
                   <Text style={styles.chipText}>{ac.name}</Text>
                 </Pressable>
@@ -223,7 +223,7 @@ export default function TransactionEditScreen() {
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setCategory(null)}
-                style={[styles.chip, category === null && styles.chipOn]}
+                style={({ pressed }) => [styles.chip, category === null && styles.chipOn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.chipText}>None</Text>
               </Pressable>
@@ -231,10 +231,11 @@ export default function TransactionEditScreen() {
                 <Pressable
                   key={c.id}
                   onPress={() => setCategory(c.label)}
-                  style={[
+                  style={({ pressed }) => [
                     styles.chip,
                     category === c.label && styles.chipOn,
                     category === c.label && c.color ? { backgroundColor: c.color } : null,
+                    pressed && { opacity: 0.7 },
                   ]}
                 >
                   <Text style={styles.chipText}>{c.label}</Text>
@@ -246,7 +247,7 @@ export default function TransactionEditScreen() {
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setTripId(null)}
-                style={[styles.chip, tripId === null && styles.chipOn]}
+                style={({ pressed }) => [styles.chip, tripId === null && styles.chipOn, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.chipText}>None</Text>
               </Pressable>
@@ -254,7 +255,7 @@ export default function TransactionEditScreen() {
                 <Pressable
                   key={t.id}
                   onPress={() => setTripId(t.id)}
-                  style={[styles.chip, tripId === t.id && styles.chipOn]}
+                  style={({ pressed }) => [styles.chip, tripId === t.id && styles.chipOn, pressed && { opacity: 0.7 }]}
                 >
                   <Text style={styles.chipText}>{t.name}</Text>
                 </Pressable>

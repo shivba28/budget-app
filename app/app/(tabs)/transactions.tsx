@@ -20,9 +20,11 @@ import {
 } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { useFocusEffect, useRouter } from 'expo-router'
+import { useUiSignals } from '@/src/stores/uiSignals'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { DateInput } from '@/src/components/DateInput'
+import { AddTransactionBottomSheet } from '@/src/components/transactions/AddTransactionBottomSheet'
 import { AllocationBottomSheet } from '@/src/components/transactions/AllocationBottomSheet'
 import { EditTransactionBottomSheet } from '@/src/components/transactions/EditTransactionBottomSheet'
 import { TransactionSwipeRow } from '@/src/components/transactions/TransactionSwipeRow'
@@ -137,6 +139,9 @@ export default function TransactionsScreen() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
 
+  const addTransactionSignal = useUiSignals((s) => s.addTransactionSignal)
+  const addRef = useRef<BottomSheetModal>(null)
+  const mountedSignalRef = useRef(addTransactionSignal)
   const allocRef = useRef<BottomSheetModal>(null)
   const [allocTxId, setAllocTxId] = useState<string | null>(null)
   const editRef = useRef<BottomSheetModal>(null)
@@ -159,6 +164,11 @@ export default function TransactionsScreen() {
       setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
     }, [load, loadCategories, loadAccounts]),
   )
+
+  useEffect(() => {
+    if (addTransactionSignal <= mountedSignalRef.current) return
+    setTimeout(() => addRef.current?.present(), 0)
+  }, [addTransactionSignal])
 
   const onRefresh = useCallback(() => {
     setRefreshing(true)
@@ -483,7 +493,7 @@ export default function TransactionsScreen() {
   )
 
   return (
-    <View style={[styles.screen, { paddingBottom: insets.bottom + 12 }]}>
+    <View style={[styles.screen, { paddingBottom: insets.bottom + 52 }]}>
       <View
         style={[
           styles.topbar,
@@ -523,6 +533,8 @@ export default function TransactionsScreen() {
           />
         </View>
       </View>
+
+      <AddTransactionBottomSheet ref={addRef} />
 
       <AllocationBottomSheet
         ref={allocRef}

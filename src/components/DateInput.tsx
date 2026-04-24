@@ -50,6 +50,7 @@ export function DateInput({ value, onChange, placeholder = 'YYYY-MM-DD', style }
           value={date}
           mode="date"
           display="default"
+          themeVariant="light"
           onChange={onAndroidChange}
         />
       )}
@@ -71,15 +72,19 @@ export function DateInput({ value, onChange, placeholder = 'YYYY-MM-DD', style }
                 <Text style={[styles.headerBtn, styles.headerDone]}>Done</Text>
               </Pressable>
             </View>
-            <DateTimePicker
-              value={date}
-              mode="date"
-              display="spinner"
-              onChange={(_: unknown, selected?: Date) => {
-                if (selected) onChange(toYMD(selected))
-              }}
-              style={styles.picker}
-            />
+            <View style={styles.pickerWrap}>
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display="spinner"
+                themeVariant="light"
+                textColor={INK}
+                onChange={(_: unknown, selected?: Date) => {
+                  if (selected) onChange(toYMD(selected))
+                }}
+                style={styles.picker}
+              />
+            </View>
           </View>
         </Modal>
       )}
@@ -132,7 +137,11 @@ const styles = StyleSheet.create({
   headerDone: {
     color: YELLOW,
   },
+  pickerWrap: {
+    alignItems: 'center',
+  },
   picker: {
     backgroundColor: CREAM,
+    alignSelf: 'center',
   },
 })

@@ -1,5 +1,4 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
-import { useRouter } from 'expo-router'
 import { useUiSignals } from '@/src/stores/uiSignals'
 import { useEffect, useMemo, useRef } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
@@ -108,8 +107,8 @@ function TabIcon({ name, active }: { name: string; active: boolean }) {
 }
 
 export function TabBarWithCenterFab(props: BottomTabBarProps) {
-  const router = useRouter()
   const triggerAddTrip = useUiSignals((s) => s.triggerAddTrip)
+  const triggerAddTransaction = useUiSignals((s) => s.triggerAddTransaction)
   const insets = useSafeAreaInsets()
   const routeName = props.state.routes[props.state.index]?.name
   const activeRoute = props.state.routes[props.state.index]
@@ -119,7 +118,7 @@ export function TabBarWithCenterFab(props: BottomTabBarProps) {
   const bottomPad = Math.max(insets.bottom, 10)
 
   const onFabPress = () => {
-    if (routeName === 'transactions') router.push('/app/transaction-new')
+    if (routeName === 'transactions') triggerAddTransaction()
     else if (routeName === 'trips') triggerAddTrip()
   }
 

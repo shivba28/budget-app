@@ -19,6 +19,7 @@ import { useUiSignals } from '@/src/stores/uiSignals'
 const CREAM = '#FAFAF5'
 const INK = '#111111'
 const MUTED = '#E8E8E0'
+const YELLOW = '#F5C842'
 const GREEN = '#3BCEAC'
 const RED = '#FF5E5E'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
@@ -52,14 +53,14 @@ export default function TripsListScreen() {
   const load = useTripsStore((s) => s.load)
   const addTripSignal = useUiSignals((s) => s.addTripSignal)
   const sheetRef = useRef<BottomSheetModal>(null)
+  const mountedTripSignalRef = useRef(addTripSignal)
   const [pendingNavId, setPendingNavId] = useState<number | null>(null)
 
   useEffect(() => { load() }, [load])
   useFocusEffect(useCallback(() => { load() }, [load]))
 
-  // Open sheet when FAB fires the signal (skip the initial 0 value)
   useEffect(() => {
-    if (addTripSignal === 0) return
+    if (addTripSignal <= mountedTripSignalRef.current) return
     sheetRef.current?.present()
   }, [addTripSignal])
 
@@ -95,7 +96,7 @@ export default function TripsListScreen() {
         <Text style={styles.topbarSub}>Tag spending</Text>
       </View>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 76 }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.sectionLabel}>Your trips</Text>

@@ -8,6 +8,7 @@ import {
 import { forwardRef, useCallback, useMemo, useState } from 'react'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
+import { DateInput } from '@/src/components/DateInput'
 import { useTripsStore } from '@/src/stores/tripsStore'
 
 const CREAM = '#FAFAF5'
@@ -24,8 +25,11 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
   function TripNewBottomSheet({ onCreated, onDismiss }, ref) {
     const add = useTripsStore((s) => s.add)
     const [name, setName] = useState('')
+    const [budget, setBudget] = useState('')
+    const [start, setStart] = useState('')
+    const [end, setEnd] = useState('')
 
-    const snapPoints = useMemo(() => ['42%'], [])
+    const snapPoints = useMemo(() => ['72%'], [])
 
     const renderBackdrop = useCallback(
       (props: BottomSheetBackdropProps) => (
@@ -42,14 +46,26 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
     const onCreate = () => {
       const n = name.trim()
       if (!n) return
-      const id = add({ name: n })
+      const lim = budget.trim() === '' ? null : Number(budget)
+      const id = add({
+        name: n,
+        start_date: start.trim() || null,
+        end_date: end.trim() || null,
+        budget_limit: lim !== null && !Number.isNaN(lim) ? lim : null,
+      })
       setName('')
+      setBudget('')
+      setStart('')
+      setEnd('')
       ;(ref as React.RefObject<BottomSheetModal>)?.current?.dismiss()
       onCreated(id)
     }
 
     const handleDismiss = () => {
       setName('')
+      setBudget('')
+      setStart('')
+      setEnd('')
       onDismiss()
     }
 
@@ -78,10 +94,29 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
             autoCorrect={false}
             autoCapitalize="words"
           />
-          <Pressable onPress={onCreate} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-            <View style={[styles.btn, styles.btnYellow]}>
-              <Text style={styles.btnText}>Create trip</Text>
-            </View>
+          <Text style={styles.fieldLabel}>Budget cap (optional)</Text>
+          <BottomSheetTextInput
+            style={styles.fieldInput}
+            value={budget}
+            onChangeText={setBudget}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 3200"
+            placeholderTextColor="#999"
+          />
+          <Text style={styles.fieldLabel}>Start date (optional)</Text>
+          <DateInput value={start} onChange={setStart} style={styles.dateField} />
+          <Text style={styles.fieldLabel}>End date (optional)</Text>
+          <DateInput
+            value={end}
+            onChange={setEnd}
+            style={[styles.dateField, { marginBottom: 14 }]}
+          />
+          <Pressable onPress={onCreate}>
+            {({ pressed }) => (
+              <View style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]} pointerEvents="none">
+                <Text style={styles.btnText}>Create trip</Text>
+              </View>
+            )}
           </Pressable>
         </BottomSheetScrollView>
       </BottomSheetModal>
@@ -133,6 +168,9 @@ const styles = StyleSheet.create({
     color: INK,
     marginBottom: 14,
   },
+  dateField: {
+    marginBottom: 4,
+  },
   btn: {
     borderWidth: 3,
     borderColor: INK,
@@ -145,6 +183,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   btnYellow: { backgroundColor: YELLOW },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,

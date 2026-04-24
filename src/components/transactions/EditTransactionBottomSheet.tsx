@@ -84,11 +84,23 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
       setTripId(tx.trip_id ?? null)
     }, [tx?.id])
 
+    const isDirty = useMemo(() => {
+      if (!tx) return false
+      return (
+        accountId !== tx.account_id ||
+        date !== tx.date ||
+        Number(amount) !== tx.amount ||
+        description.trim() !== tx.description ||
+        category !== (tx.category ?? null) ||
+        tripId !== (tx.trip_id ?? null)
+      )
+    }, [tx, accountId, date, amount, description, category, tripId])
+
     const canSave = useMemo(() => {
-      if (!accountId || !tx) return false
+      if (!accountId || !tx || !isDirty) return false
       const a = Number(amount)
       return !Number.isNaN(a) && description.trim() !== ''
-    }, [accountId, amount, description, tx])
+    }, [accountId, amount, description, tx, isDirty])
 
     const snapPoints = useMemo(() => ['60%', '92%'], [])
 
@@ -173,12 +185,15 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             <Text style={styles.fieldLabel}>Account</Text>
             <View style={styles.chips}>
               {accounts.map((ac) => (
-                <Pressable
-                  key={ac.id}
-                  onPress={() => setAccountId(ac.id)}
-                  style={[styles.chip, accountId === ac.id && styles.chipOn]}
-                >
-                  <Text style={styles.chipText}>{ac.name}</Text>
+                <Pressable key={ac.id} onPress={() => setAccountId(ac.id)}>
+                  {({ pressed }) => (
+                    <View
+                      style={[styles.chip, accountId === ac.id && styles.chipOn, pressed && styles.chipPressed]}
+                      pointerEvents="none"
+                    >
+                      <Text style={styles.chipText}>{ac.name}</Text>
+                    </View>
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -211,20 +226,28 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             {/* Category */}
             <Text style={styles.fieldLabel}>Category (optional)</Text>
             <View style={styles.chips}>
-              <Pressable onPress={() => setCategory(null)} style={[styles.chip, category === null && styles.chipOn]}>
-                <Text style={styles.chipText}>None</Text>
+              <Pressable onPress={() => setCategory(null)}>
+                {({ pressed }) => (
+                  <View style={[styles.chip, category === null && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                    <Text style={styles.chipText}>None</Text>
+                  </View>
+                )}
               </Pressable>
               {categories.map((c) => (
-                <Pressable
-                  key={c.id}
-                  onPress={() => setCategory(c.label)}
-                  style={[
-                    styles.chip,
-                    category === c.label && styles.chipOn,
-                    category === c.label && c.color ? { backgroundColor: c.color } : null,
-                  ]}
-                >
-                  <Text style={styles.chipText}>{c.label}</Text>
+                <Pressable key={c.id} onPress={() => setCategory(c.label)}>
+                  {({ pressed }) => (
+                    <View
+                      style={[
+                        styles.chip,
+                        category === c.label && styles.chipOn,
+                        category === c.label && c.color ? { backgroundColor: c.color } : null,
+                        pressed && styles.chipPressed,
+                      ]}
+                      pointerEvents="none"
+                    >
+                      <Text style={styles.chipText}>{c.label}</Text>
+                    </View>
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -232,35 +255,39 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             {/* Trip */}
             <Text style={styles.fieldLabel}>Trip (optional)</Text>
             <View style={styles.chips}>
-              <Pressable onPress={() => setTripId(null)} style={[styles.chip, tripId === null && styles.chipOn]}>
-                <Text style={styles.chipText}>None</Text>
+              <Pressable onPress={() => setTripId(null)}>
+                {({ pressed }) => (
+                  <View style={[styles.chip, tripId === null && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                    <Text style={styles.chipText}>None</Text>
+                  </View>
+                )}
               </Pressable>
               {trips.map((t) => (
-                <Pressable
-                  key={t.id}
-                  onPress={() => setTripId(t.id)}
-                  style={[styles.chip, tripId === t.id && styles.chipOn]}
-                >
-                  <Text style={styles.chipText}>{t.name}</Text>
+                <Pressable key={t.id} onPress={() => setTripId(t.id)}>
+                  {({ pressed }) => (
+                    <View style={[styles.chip, tripId === t.id && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                      <Text style={styles.chipText}>{t.name}</Text>
+                    </View>
+                  )}
                 </Pressable>
               ))}
             </View>
 
             {/* Actions */}
             <View style={styles.btnGroup}>
-              <Pressable
-                onPress={onSave}
-                disabled={!canSave}
-                style={({ pressed }) => pressed && { opacity: 0.85 }}
-              >
-                <View style={[styles.btn, styles.btnYellow, !canSave && styles.btnDisabled]}>
-                  <Text style={styles.btnText}>Save</Text>
-                </View>
+              <Pressable onPress={onSave} disabled={!canSave}>
+                {({ pressed }) => (
+                  <View style={[styles.btn, styles.btnYellow, !canSave && styles.btnDisabled, pressed && styles.btnPressed]} pointerEvents="none">
+                    <Text style={styles.btnText}>Save</Text>
+                  </View>
+                )}
               </Pressable>
-              <Pressable onPress={onDelete} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-                <View style={[styles.btn, styles.btnRed]}>
-                  <Text style={styles.btnText}>Delete</Text>
-                </View>
+              <Pressable onPress={onDelete}>
+                {({ pressed }) => (
+                  <View style={[styles.btn, styles.btnRed, pressed && styles.btnPressed]} pointerEvents="none">
+                    <Text style={styles.btnText}>Delete</Text>
+                  </View>
+                )}
               </Pressable>
             </View>
           </BottomSheetScrollView>
@@ -358,6 +385,7 @@ const styles = StyleSheet.create({
     backgroundColor: CREAM,
   },
   chipOn: { backgroundColor: YELLOW },
+  chipPressed: { opacity: 0.7 },
   chipText: {
     fontFamily: MONO,
     fontSize: 12,
@@ -374,6 +402,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: INK,
     paddingVertical: 10,
+    paddingHorizontal: 14,
     alignItems: 'center',
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
@@ -384,6 +413,7 @@ const styles = StyleSheet.create({
   btnYellow: { backgroundColor: YELLOW },
   btnRed: { backgroundColor: RED },
   btnDisabled: { opacity: 0.45 },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,

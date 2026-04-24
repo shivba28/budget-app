@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
-  Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -21,37 +22,287 @@ const MUTED = '#E8E8E0'
 const YELLOW = '#F5C842'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
-const PALETTE = [
-  '#F94144', '#F3722C', '#F8961E', '#F9C74F',
-  '#90BE6D', '#43AA8B', '#277DA1', '#9B5DE5',
-  '#F15BB5', '#00BBF9', '#3BCEAC', '#F5C842',
-  '#FF5E5E', '#C5B4E3', '#111111',
-]
+// ── color math ────────────────────────────────────────────────────────────────
+
+function hsvToHex(h: number, s: number, v: number): string {
+  const c = v * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = v - c
+  let r = 0, g = 0, b = 0
+  if (h < 60)       { r = c; g = x }
+  else if (h < 120) { r = x; g = c }
+  else if (h < 180) { g = c; b = x }
+  else if (h < 240) { g = x; b = c }
+  else if (h < 300) { r = x; b = c }
+  else              { r = c; b = x }
+  const toH = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, '0')
+  return `#${toH(r)}${toH(g)}${toH(b)}`
+}
+
+function hexToHsv(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(clean)) return [0, 1, 0.9]
+  const r = parseInt(clean.slice(0, 2), 16) / 255
+  const g = parseInt(clean.slice(2, 4), 16) / 255
+  const b = parseInt(clean.slice(4, 6), 16) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const v = max
+  const s = max === 0 ? 0 : (max - min) / max
+  let hh = 0
+  if (max !== min) {
+    const d = max - min
+    if (max === r) hh = ((g - b) / d + (g < b ? 6 : 0)) * 60
+    else if (max === g) hh = ((b - r) / d + 2) * 60
+    else hh = ((r - g) / d + 4) * 60
+  }
+  return [hh, s, v]
+}
+
+// ── GradientSlider ────────────────────────────────────────────────────────────
+
+type GStop = { offset: string; color: string }
+
+function GradientSlider({
+  gradId,
+  stops,
+  value,
+  onChange,
+}: {
+  gradId: string
+  stops: GStop[]
+  value: number
+  onChange: (v: number) => void
+}) {
+  const widthRef = useRef(0)
+  const cbRef = useRef(onChange)
+  useEffect(() => { cbRef.current = onChange })
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / (widthRef.current || 1)))
+        cbRef.current(ratio)
+      },
+      onPanResponderMove: (e) => {
+        const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / (widthRef.current || 1)))
+        cbRef.current(ratio)
+      },
+    })
+  )
+
+  const pct = `${(Math.max(0, Math.min(1, value)) * 100).toFixed(1)}%`
+
+  return (
+    <View
+      style={slSt.track}
+      onLayout={(e) => { widthRef.current = e.nativeEvent.layout.width }}
+      {...pan.current.panHandlers}
+    >
+      <Svg height="100%" width="100%" style={StyleSheet.absoluteFill}>
+        <Defs>
+          <LinearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+            {stops.map((s) => (
+              <Stop key={s.offset} offset={s.offset} stopColor={s.color} stopOpacity="1" />
+            ))}
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${gradId})`} />
+      </Svg>
+      <View style={[slSt.thumb, { left: pct }]} pointerEvents="none" />
+    </View>
+  )
+}
+
+const slSt = StyleSheet.create({
+  track: {
+    height: 30,
+    borderWidth: 2,
+    borderColor: INK,
+    marginBottom: 12,
+    overflow: 'visible',
+  },
+  thumb: {
+    position: 'absolute',
+    top: -5,
+    width: 18,
+    height: 40,
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    marginLeft: -9,
+  },
+})
+
+// ── InlineColorPicker ─────────────────────────────────────────────────────────
+
+function InlineColorPicker({
+  value,
+  onChange,
+  prefix,
+}: {
+  value: string
+  onChange: (hex: string) => void
+  prefix: string
+}) {
+  const [h, s, v] = hexToHsv(value || '#F94144')
+  const [hue, setHue] = useState(h)
+  const [sat, setSat] = useState(s)
+  const [val, setVal] = useState(v)
+  const [hexInput, setHexInput] = useState(value || '#F94144')
+
+  const hRef = useRef(hue)
+  const sRef = useRef(sat)
+  const vRef = useRef(val)
+  const cbRef = useRef(onChange)
+  useEffect(() => { cbRef.current = onChange })
+
+  const commit = useCallback((nh: number, ns: number, nv: number) => {
+    const hex = hsvToHex(nh, ns, nv)
+    setHexInput(hex)
+    cbRef.current(hex)
+  }, [])
+
+  const onHue = useCallback((ratio: number) => {
+    const nh = ratio * 360
+    hRef.current = nh
+    setHue(nh)
+    commit(nh, sRef.current, vRef.current)
+  }, [commit])
+
+  const onSat = useCallback((ratio: number) => {
+    sRef.current = ratio
+    setSat(ratio)
+    commit(hRef.current, ratio, vRef.current)
+  }, [commit])
+
+  const onVal = useCallback((ratio: number) => {
+    vRef.current = ratio
+    setVal(ratio)
+    commit(hRef.current, sRef.current, ratio)
+  }, [commit])
+
+  const onHexChange = (text: string) => {
+    setHexInput(text)
+    if (/^#[0-9a-fA-F]{6}$/.test(text.trim())) {
+      const [nh, ns, nv] = hexToHsv(text.trim())
+      hRef.current = nh; sRef.current = ns; vRef.current = nv
+      setHue(nh); setSat(ns); setVal(nv)
+      cbRef.current(text.trim())
+    }
+  }
+
+  const pureHue = hsvToHex(hue, 1, 1)
+  const satColor = hsvToHex(hue, sat, 1)
+  const current = hsvToHex(hue, sat, val)
+
+  return (
+    <View style={pkSt.wrap}>
+      <View style={[pkSt.preview, { backgroundColor: current }]} />
+
+      <Text style={pkSt.sliderLabel}>Hue</Text>
+      <GradientSlider
+        gradId={`${prefix}-h`}
+        stops={[
+          { offset: '0',    color: '#FF0000' },
+          { offset: '0.17', color: '#FFFF00' },
+          { offset: '0.33', color: '#00FF00' },
+          { offset: '0.5',  color: '#00FFFF' },
+          { offset: '0.67', color: '#0000FF' },
+          { offset: '0.83', color: '#FF00FF' },
+          { offset: '1',    color: '#FF0000' },
+        ]}
+        value={hue / 360}
+        onChange={onHue}
+      />
+
+      <Text style={pkSt.sliderLabel}>Saturation</Text>
+      <GradientSlider
+        gradId={`${prefix}-s`}
+        stops={[{ offset: '0', color: '#FFFFFF' }, { offset: '1', color: pureHue }]}
+        value={sat}
+        onChange={onSat}
+      />
+
+      <Text style={pkSt.sliderLabel}>Brightness</Text>
+      <GradientSlider
+        gradId={`${prefix}-v`}
+        stops={[{ offset: '0', color: '#000000' }, { offset: '1', color: satColor }]}
+        value={val}
+        onChange={onVal}
+      />
+
+      <Text style={pkSt.sliderLabel}>Hex</Text>
+      <TextInput
+        style={pkSt.hexInput}
+        value={hexInput}
+        onChangeText={onHexChange}
+        placeholder="#F94144"
+        placeholderTextColor="#888"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+    </View>
+  )
+}
+
+const pkSt = StyleSheet.create({
+  wrap: { marginBottom: 10 },
+  preview: {
+    height: 44,
+    borderWidth: 2,
+    borderColor: INK,
+    marginBottom: 12,
+  },
+  sliderLabel: {
+    fontFamily: MONO,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: INK,
+    marginBottom: 4,
+  },
+  hexInput: {
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    fontFamily: MONO,
+    fontSize: 14,
+    color: INK,
+    marginBottom: 6,
+  },
+})
+
+// ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function CategoriesScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const items = useCategoriesStore((s) => s.items)
-  const load = useCategoriesStore((s) => s.load)
-  const add = useCategoriesStore((s) => s.add)
+  const load  = useCategoriesStore((s) => s.load)
+  const add   = useCategoriesStore((s) => s.add)
   const update = useCategoriesStore((s) => s.update)
   const remove = useCategoriesStore((s) => s.remove)
 
-  const [label, setLabel] = useState('')
-  const [color, setColor] = useState('')
+  const [label, setLabel]       = useState('')
+  const [color, setColor]       = useState('#F94144')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
-  const [editColor, setEditColor] = useState('')
-  const [pickerOpen, setPickerOpen] = useState<null | 'create' | 'edit'>(null)
+  const [editColor, setEditColor] = useState('#F94144')
 
   useEffect(() => { load() }, [load])
 
   const onCreate = () => {
     const l = label.trim()
     if (!l) return
-    add({ label: l, color: color.trim() || null })
+    add({ label: l, color: color || null })
     setLabel('')
-    setColor('')
+    setColor('#F94144')
   }
 
   const startEdit = (id: string) => {
@@ -59,123 +310,111 @@ export default function CategoriesScreen() {
     if (!row) return
     setEditingId(id)
     setEditLabel(row.label)
-    setEditColor(row.color ?? '')
+    setEditColor(row.color ?? '#F94144')
   }
+
+  const editingItem = useMemo(() => items.find((c) => c.id === editingId), [items, editingId])
+
+  const isEditDirty = useMemo(() => {
+    if (!editingItem) return false
+    return editLabel.trim() !== editingItem.label || editColor !== (editingItem.color ?? '#F94144')
+  }, [editingItem, editLabel, editColor])
 
   const onSaveEdit = () => {
     if (!editingId) return
     const l = editLabel.trim()
     if (!l) return
-    update(editingId, { label: l, color: editColor.trim() || null })
+    update(editingId, { label: l, color: editColor || null })
     setEditingId(null)
   }
 
   const onDelete = (id: string) => {
     Alert.alert('Delete category', 'Budget rows that reference this label stay as-is.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => remove(id) },
+      { text: 'Delete', style: 'destructive', onPress: () => { remove(id); setEditingId(null) } },
     ])
   }
 
   return (
-    <View style={styles.screen}>
-      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
+    <View style={ss.screen}>
+      {/* Top bar */}
+      <View style={[ss.topbar, { paddingTop: insets.top + 10 }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-          <Text style={styles.backChev}>‹</Text>
+          <Text style={ss.backChev}>‹</Text>
         </Pressable>
-        <Text style={styles.topbarTitle}>Categories</Text>
-        <Text style={styles.topbarSub}>Labels</Text>
+        <Text style={ss.topbarTitle}>Categories</Text>
+        <Text style={ss.topbarSub}>Labels</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[ss.scroll, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         {/* Create form */}
-        <View style={styles.card}>
-          <Text style={styles.fieldLabel}>Name</Text>
+        <View style={ss.card}>
+          <Text style={ss.fieldLabel}>Name</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={ss.fieldInput}
             value={label}
             onChangeText={setLabel}
             placeholder="e.g. Dining…"
-            placeholderTextColor="#999"
+            placeholderTextColor="#888"
           />
-          <Text style={styles.fieldLabel}>Color (hex, optional)</Text>
-          <View style={styles.colorRow}>
-            <View style={[styles.colorPreview, color.trim() ? { backgroundColor: color.trim() } : null]} />
-            <TextInput
-              style={[styles.fieldInput, styles.colorInput]}
-              value={color}
-              onChangeText={setColor}
-              placeholder="#F94144"
-              placeholderTextColor="#999"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-          <Pressable onPress={() => setPickerOpen('create')} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-            <View style={styles.pickBtn}>
-              <Text style={styles.pickBtnText}>Pick a color</Text>
-            </View>
-          </Pressable>
-          <Pressable onPress={onCreate} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-            <View style={[styles.btn, styles.btnYellow]}>
-              <Text style={styles.btnText}>Add category</Text>
-            </View>
+          <Text style={ss.fieldLabel}>Color</Text>
+          <InlineColorPicker value={color} onChange={setColor} prefix="create" />
+          <Pressable onPress={onCreate}>
+            {({ pressed }) => (
+              <View style={[ss.btn, ss.btnYellow, pressed && ss.btnPressed]} pointerEvents="none">
+                <Text style={ss.btnText}>Add category</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
-        {/* List */}
-        <Text style={styles.sectionLabel}>All</Text>
+        {/* Category list */}
+        <Text style={ss.sectionLabel}>All</Text>
         {items.length === 0 ? (
-          <Text style={styles.empty}>No categories yet.</Text>
+          <Text style={ss.empty}>No categories yet.</Text>
         ) : (
           items.map((item) => {
             if (editingId === item.id) {
               return (
-                <View key={item.id} style={styles.editCard}>
-                  <Text style={styles.fieldLabel}>Name</Text>
+                <View key={item.id} style={ss.editCard}>
+                  <Text style={ss.fieldLabel}>Name</Text>
                   <TextInput
-                    style={styles.fieldInput}
+                    style={ss.fieldInput}
                     value={editLabel}
                     onChangeText={setEditLabel}
                     autoCorrect={false}
                   />
-                  <Text style={styles.fieldLabel}>Color (hex, optional)</Text>
-                  <View style={styles.colorRow}>
-                    <View style={[styles.colorPreview, editColor.trim() ? { backgroundColor: editColor.trim() } : null]} />
-                    <TextInput
-                      style={[styles.fieldInput, styles.colorInput]}
-                      value={editColor}
-                      onChangeText={setEditColor}
-                      placeholder="#F94144"
-                      placeholderTextColor="#999"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                  </View>
-                  <Pressable onPress={() => setPickerOpen('edit')} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-                    <View style={styles.pickBtn}>
-                      <Text style={styles.pickBtnText}>Pick a color</Text>
-                    </View>
-                  </Pressable>
-                  <View style={styles.editBtnRow}>
-                    <Pressable onPress={onSaveEdit} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
-                      <View style={[styles.btn, styles.btnYellow]}>
-                        <Text style={styles.btnText}>Save</Text>
-                      </View>
+                  <Text style={ss.fieldLabel}>Color</Text>
+                  <InlineColorPicker
+                    value={editColor}
+                    onChange={setEditColor}
+                    prefix={`edit-${item.id}`}
+                  />
+                  <View style={ss.editBtnRow}>
+                    <Pressable onPress={onSaveEdit} disabled={!isEditDirty} style={{ flex: 1 }}>
+                      {({ pressed }) => (
+                        <View style={[ss.btn, ss.btnYellow, !isEditDirty && ss.btnDisabled, pressed && isEditDirty && ss.btnPressed]} pointerEvents="none">
+                          <Text style={ss.btnText}>Save</Text>
+                        </View>
+                      )}
                     </Pressable>
-                    <Pressable onPress={() => onDelete(item.id)} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
-                      <View style={[styles.btn, styles.btnRed]}>
-                        <Text style={styles.btnText}>Delete</Text>
-                      </View>
+                    <Pressable onPress={() => onDelete(item.id)} style={{ flex: 1 }}>
+                      {({ pressed }) => (
+                        <View style={[ss.btn, ss.btnRed, pressed && ss.btnPressed]} pointerEvents="none">
+                          <Text style={ss.btnText}>Delete</Text>
+                        </View>
+                      )}
                     </Pressable>
-                    <Pressable onPress={() => setEditingId(null)} style={[{ flex: 1 }, ({ pressed }) => pressed && { opacity: 0.85 }]}>
-                      <View style={[styles.btn, styles.btnNeutral]}>
-                        <Text style={styles.btnText}>Cancel</Text>
-                      </View>
+                    <Pressable onPress={() => setEditingId(null)} style={{ flex: 1 }}>
+                      {({ pressed }) => (
+                        <View style={[ss.btn, ss.btnNeutral, pressed && ss.btnPressed]} pointerEvents="none">
+                          <Text style={ss.btnText}>Cancel</Text>
+                        </View>
+                      )}
                     </Pressable>
                   </View>
                 </View>
@@ -184,51 +423,24 @@ export default function CategoriesScreen() {
 
             const bg = item.color ?? MUTED
             return (
-              <Pressable key={item.id} onPress={() => startEdit(item.id)} style={({ pressed }) => pressed && { opacity: 0.85 }}>
-                <View style={[styles.catBadge, { backgroundColor: bg }]}>
-                  <View style={[styles.catSwatch, { backgroundColor: bg }]} />
-                  <Text style={styles.catLabel} numberOfLines={1}>{item.label}</Text>
-                  <Text style={styles.catEdit}>Edit</Text>
-                </View>
+              <Pressable key={item.id} onPress={() => startEdit(item.id)}>
+                {({ pressed }) => (
+                  <View style={[ss.catBadge, { backgroundColor: bg }, pressed && { opacity: 0.85 }]}>
+                    <View style={[ss.catSwatch, { backgroundColor: bg }]} />
+                    <Text style={ss.catLabel} numberOfLines={1}>{item.label}</Text>
+                    <Text style={ss.catEdit}>Edit</Text>
+                  </View>
+                )}
               </Pressable>
             )
           })
         )}
       </ScrollView>
-
-      {/* Color picker modal */}
-      <Modal visible={pickerOpen !== null} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Pick a color</Text>
-            <View style={styles.paletteGrid}>
-              {PALETTE.map((c) => (
-                <Pressable
-                  key={c}
-                  onPress={() => {
-                    if (pickerOpen === 'edit') setEditColor(c)
-                    else setColor(c)
-                    setPickerOpen(null)
-                  }}
-                  style={({ pressed }) => pressed && { opacity: 0.8 }}
-                >
-                  <View style={[styles.swatchBtn, { backgroundColor: c }]} />
-                </Pressable>
-              ))}
-            </View>
-            <Pressable onPress={() => setPickerOpen(null)} style={({ pressed }) => pressed && { opacity: 0.8 }}>
-              <View style={[styles.btn, styles.btnNeutral]}>
-                <Text style={styles.btnText}>Close</Text>
-              </View>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
+const ss = StyleSheet.create({
   screen: { flex: 1, backgroundColor: CREAM },
   topbar: {
     backgroundColor: INK,
@@ -308,41 +520,6 @@ const styles = StyleSheet.create({
     color: INK,
     marginBottom: 6,
   },
-  colorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 0,
-  },
-  colorPreview: {
-    width: 28,
-    height: 28,
-    borderWidth: 2,
-    borderColor: INK,
-    backgroundColor: MUTED,
-    flexShrink: 0,
-  },
-  colorInput: {
-    flex: 1,
-    marginBottom: 6,
-  },
-  pickBtn: {
-    borderWidth: 2,
-    borderColor: INK,
-    backgroundColor: MUTED,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  pickBtnText: {
-    fontFamily: MONO,
-    fontSize: 12,
-    fontWeight: '800',
-    color: INK,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
   btn: {
     borderWidth: 3,
     borderColor: INK,
@@ -354,9 +531,10 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 3,
   },
-  btnYellow: { backgroundColor: YELLOW },
-  btnRed: { backgroundColor: '#FF5E5E' },
+  btnYellow:  { backgroundColor: YELLOW },
+  btnRed:     { backgroundColor: '#FF5E5E' },
   btnNeutral: { backgroundColor: CREAM },
+  btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,
     fontSize: 13,
@@ -421,43 +599,5 @@ const styles = StyleSheet.create({
     color: INK,
     opacity: 0.6,
     textTransform: 'uppercase',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  modalCard: {
-    borderWidth: 3,
-    borderColor: INK,
-    backgroundColor: CREAM,
-    padding: 16,
-    shadowColor: INK,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 3,
-  },
-  modalTitle: {
-    fontFamily: MONO,
-    fontWeight: '800',
-    fontSize: 14,
-    color: INK,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  paletteGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  swatchBtn: {
-    width: 44,
-    height: 44,
-    borderWidth: 3,
-    borderColor: INK,
   },
 })

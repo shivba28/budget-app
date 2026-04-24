@@ -374,6 +374,7 @@ export default function Insights() {
   const [customDraftEnd, setCustomDraftEnd] = useState('')
   const [dismissRev, setDismissRev] = useState(0)
   const [pieRev, setPieRev] = useState(0)
+  const [budgetRev, setBudgetRev] = useState(0)
 
   /** Re-run insights when the transactions store refreshes (e.g. after sync). */
   const txStoreItems = useTransactionsStore((s) => s.items)
@@ -390,12 +391,14 @@ export default function Insights() {
   useFocusEffect(
     useCallback(() => {
       setPieRev((n) => n + 1)
+      setBudgetRev((n) => n + 1)
       loadCategories()
     }, []),
   )
 
   const data = useMemo(() => {
     void dismissRev
+    void budgetRev
     maybeResetDismissalsOnNewSync()
     const dismissedAnomalies = getDismissedAnomalyIds()
     const dismissedDupes = getDismissedDuplicateKeys()
@@ -405,7 +408,11 @@ export default function Insights() {
       accounts.filter((a) => a.include_in_insights === 1).map((a) => a.id),
     )
     const txs = txq.listTransactions().filter((t) => visible.has(t.account_id))
-    const budgets = budgetsQ.listBudgets(focusKey)
+    // Prefer budgets keyed to the specific month; fall back to the 'default' template
+    const specificBudgets = budgetsQ.listBudgets(focusKey)
+    const budgets = specificBudgets.length > 0
+      ? specificBudgets
+      : budgetsQ.listBudgets('default')
     const budgetsByCat = new Map<string, number>()
     for (const b of budgets) {
       const cat = (b.category ?? '').trim() || 'Other'
@@ -436,6 +443,7 @@ export default function Insights() {
     spendRange.end,
     spendRange.label,
     txStoreItems,
+    budgetRev,
   ])
 
   const todayYm = nowYearMonth()
@@ -499,7 +507,7 @@ export default function Insights() {
         <Text style={styles.topbarSub}>Offline analytics</Text>
       </View>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 76 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.monthNav}>
