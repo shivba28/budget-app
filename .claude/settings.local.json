@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx expo *)"
+      "Bash(npx expo *)",
+      "Bash(openssl rsa *)",
+      "Bash(openssl pkcs8 *)",
+      "Bash(npx tsc *)",
+      "Bash(git -C /Users/shewbaka/Documents/Github/budget-tracker-rn diff --stat HEAD)",
+      "Bash(openssl x509 *)",
+      "Bash(openssl md5 *)",
+      "Bash(openssl pkcs12 *)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(echo \"Verify exit: $?\")"
     ]
   }
 }

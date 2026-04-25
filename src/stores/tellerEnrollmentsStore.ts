@@ -23,6 +23,13 @@ function mapRows(): EnrollmentMeta[] {
 }
 
 export const useTellerEnrollmentsStore = create<State>((set) => ({
-  items: mapRows(),
-  refresh: () => set({ items: mapRows() }),
+  // Don't read SQLite at module init; DB/migrations may not be ready yet.
+  items: [],
+  refresh: () => {
+    try {
+      set({ items: mapRows() })
+    } catch {
+      set({ items: [] })
+    }
+  },
 }))

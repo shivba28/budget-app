@@ -167,14 +167,18 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
                 </Text>
               </View>
               <Text style={styles.summaryMeta}>
-                {tx.date}{accountInfo ? ` · ${accountInfo}` : ''}
-                {tx.pending === 1 ? <Text style={styles.pendingBadge}>{' PENDING'}</Text> : null}
+                {tx.date}{accountInfo ? ` · ${accountInfo} · ` : ''}
+                {tx.pending === 1 ? <Text style={styles.pendingBadge}>{'PENDING'}</Text> : null}
               </Text>
             </View>
 
-            {/* Defer date */}
-            <Text style={styles.fieldLabel}>Defer to date</Text>
-            <DateInput value={deferDate} onChange={setDeferDate} style={styles.fieldInput} />
+            {/* Defer date — hidden for pending transactions (date will update automatically when posted) */}
+            {tx.pending !== 1 ? (
+              <>
+                <Text style={styles.fieldLabel}>Defer to date</Text>
+                <DateInput value={deferDate} onChange={setDeferDate} style={styles.fieldInput} />
+              </>
+            ) : null}
 
             {/* Trip */}
             <Text style={styles.fieldLabel}>Trip</Text>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Modal,
   Platform,
@@ -19,7 +19,7 @@ import {
   withTiming,
 } from 'react-native-reanimated'
 
-import { useFocusEffect } from 'expo-router'
+import { useTabStore } from '@/src/stores/tabStore'
 
 import { DateInput } from '@/src/components/DateInput'
 import * as accountsQ from '@/src/db/queries/accounts'
@@ -366,6 +366,7 @@ function buildDonutItems(
 }
 
 export default function Insights() {
+  const activeIndex = useTabStore((s) => s.activeIndex)
   const insets = useSafeAreaInsets()
   const [navYm, setNavYm] = useState(() => nowYearMonth())
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null)
@@ -388,13 +389,13 @@ export default function Insights() {
     [focusYm.year, focusYm.month, customRange],
   )
 
-  useFocusEffect(
-    useCallback(() => {
-      setPieRev((n) => n + 1)
-      setBudgetRev((n) => n + 1)
-      loadCategories()
-    }, []),
-  )
+  // Reload when insights tab becomes active (replaces useFocusEffect)
+  useEffect(() => {
+    if (activeIndex !== 1) return
+    setPieRev((n) => n + 1)
+    setBudgetRev((n) => n + 1)
+    loadCategories()
+  }, [activeIndex, loadCategories])
 
   const data = useMemo(() => {
     void dismissRev
@@ -487,8 +488,8 @@ export default function Insights() {
         typeof t.my_share === 'number' && Number.isFinite(t.my_share)
           ? t.my_share
           : t.amount
-      if (share <= 0) continue
-      sums.set(t.trip_id, (sums.get(t.trip_id) ?? 0) + share)
+      if (share >= 0) continue  // expenses are negative; skip income/zero
+      sums.set(t.trip_id, (sums.get(t.trip_id) ?? 0) + Math.abs(share))
     }
     return [...sums.entries()]
       .map(([tripId, spend]) => ({
@@ -744,12 +745,20 @@ export default function Insights() {
             <Text style={styles.inputLabel}>End</Text>
             <DateInput value={customDraftEnd} onChange={setCustomDraftEnd} style={styles.input} />
             <View style={styles.modalActions}>
-              <Text onPress={() => setShowCustomModal(false)} style={styles.modalCancel}>
-                Cancel
-              </Text>
-              <Text onPress={applyCustomRange} style={styles.modalApply}>
-                Apply
-              </Text>
+              <Pressable onPress={() => setShowCustomModal(false)} style={{ flex: 1 }}>
+                {({ pressed }) => (
+                  <View style={[styles.modalBtn, styles.modalBtnCancel, pressed && styles.modalBtnPressed]} pointerEvents="none">
+                    <Text style={styles.modalBtnText}>Cancel</Text>
+                  </View>
+                )}
+              </Pressable>
+              <Pressable onPress={applyCustomRange} style={{ flex: 1 }}>
+                {({ pressed }) => (
+                  <View style={[styles.modalBtn, styles.modalBtnApply, pressed && styles.modalBtnPressed]} pointerEvents="none">
+                    <Text style={styles.modalBtnText}>Apply</Text>
+                  </View>
+                )}
+              </Pressable>
             </View>
           </View>
         </View>
@@ -1037,24 +1046,37 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 16,
-    marginTop: 8,
+    gap: 8,
+    marginTop: 12,
   },
-  modalCancel: {
+  modalBtn: {
+    borderWidth: 3,
+    borderColor: INK,
+    paddingVertical: 11,
+    alignItems: 'center',
+    shadowColor: INK,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  modalBtnCancel: {
+    backgroundColor: CREAM,
+  },
+  modalBtnApply: {
+    backgroundColor: '#F5C842',
+  },
+  modalBtnPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  modalBtnText: {
     fontFamily: MONO,
     fontWeight: '800',
     color: INK,
-    padding: 8,
     fontSize: 13,
     textTransform: 'uppercase',
-  },
-  modalApply: {
-    fontFamily: MONO,
-    fontWeight: '800',
-    color: '#F5C842',
-    padding: 8,
-    fontSize: 13,
-    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 })

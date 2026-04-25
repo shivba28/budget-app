@@ -20,6 +20,16 @@ function resolveSpend(tx: TransactionRow): number {
   return tx.amount
 }
 
+/** True when the transaction is an expense (negative = money going out). */
+function isExpense(tx: TransactionRow): boolean {
+  return resolveSpend(tx) < 0
+}
+
+/** Positive expense magnitude (always >= 0). */
+function expenseAmount(tx: TransactionRow): number {
+  return Math.abs(resolveSpend(tx))
+}
+
 function resolveBudgetMonthKey(tx: TransactionRow): string | null {
   // Phase 5 requirement: effective_date drives month grouping when present.
   const eff = monthKeyFromIsoDate(tx.effective_date ?? null)
@@ -107,22 +117,23 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
     const r = roll(mk)
 
     const spend = resolveSpend(tx)
-    if (spend > 0) {
-      r.expenses += spend
+    if (isExpense(tx)) {
+      const amt = expenseAmount(tx)
+      r.expenses += amt
       r.spendTxs.push(tx)
       allSpendTxs.push(tx)
 
       const cat = safeCategory(tx)
-      r.spendByCat.set(cat, (r.spendByCat.get(cat) ?? 0) + spend)
+      r.spendByCat.set(cat, (r.spendByCat.get(cat) ?? 0) + amt)
 
       const mer = normalizeMerchant(tx.description)
-      r.spendByMerchant.set(mer, (r.spendByMerchant.get(mer) ?? 0) + spend)
+      r.spendByMerchant.set(mer, (r.spendByMerchant.get(mer) ?? 0) + amt)
       if (!r.merchantSampleDesc.has(mer)) {
         const raw = tx.description.trim()
         r.merchantSampleDesc.set(mer, raw.length > 0 ? raw : mer)
       }
-    } else if (tx.amount < 0) {
-      r.income += Math.abs(tx.amount)
+    } else if (spend > 0) {
+      r.income += spend
     }
   }
 
@@ -137,26 +148,25 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
     if (tx.pending === 1 && tx.user_confirmed !== 1) continue
     const day = txEffectiveDay(tx)
     if (!inSpendRange(day, rangeStart, rangeEnd)) continue
-    const spend = resolveSpend(tx)
-    if (spend > 0) rangeSpendTxs.push(tx)
+    if (isExpense(tx)) rangeSpendTxs.push(tx)
   }
 
   const rangeSpendByCat = new Map<string, number>()
   const rangeSpendByMerchant = new Map<string, number>()
   const rangeMerchantSampleDesc = new Map<string, string>()
   for (const tx of rangeSpendTxs) {
-    const spend = resolveSpend(tx)
+    const amt = expenseAmount(tx)
     const cat = safeCategory(tx)
-    rangeSpendByCat.set(cat, (rangeSpendByCat.get(cat) ?? 0) + spend)
+    rangeSpendByCat.set(cat, (rangeSpendByCat.get(cat) ?? 0) + amt)
     const mer = normalizeMerchant(tx.description)
-    rangeSpendByMerchant.set(mer, (rangeSpendByMerchant.get(mer) ?? 0) + spend)
+    rangeSpendByMerchant.set(mer, (rangeSpendByMerchant.get(mer) ?? 0) + amt)
     if (!rangeMerchantSampleDesc.has(mer)) {
       const raw = tx.description.trim()
       rangeMerchantSampleDesc.set(mer, raw.length > 0 ? raw : mer)
     }
   }
 
-  const periodTotalSpend = rangeSpendTxs.reduce((s, tx) => s + resolveSpend(tx), 0)
+  const periodTotalSpend = rangeSpendTxs.reduce((s, tx) => s + expenseAmount(tx), 0)
 
   const categoryTotalsDesc = [...rangeSpendByCat.entries()]
     .map(([category, totalSpend]) => ({ category, totalSpend }))
@@ -204,13 +214,13 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
     .slice(0, 5)
 
   const biggestThree = [...rangeSpendTxs]
-    .sort((a, b) => resolveSpend(b) - resolveSpend(a))
+    .sort((a, b) => expenseAmount(b) - expenseAmount(a))
     .slice(0, 3)
     .map((t) => ({
       id: t.id,
       date: t.date,
       description: t.description,
-      amount: resolveSpend(t),
+      amount: expenseAmount(t),
       category: safeCategory(t),
     }))
 
@@ -242,10 +252,10 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
   const rangeSpendAmountsByCategory = new Map<string, number[]>()
   for (const tx of rangeSpendTxs) {
     const cat = safeCategory(tx)
-    const spend = resolveSpend(tx)
+    const amt = expenseAmount(tx)
     const list = rangeSpendAmountsByCategory.get(cat)
-    if (list) list.push(spend)
-    else rangeSpendAmountsByCategory.set(cat, [spend])
+    if (list) list.push(amt)
+    else rangeSpendAmountsByCategory.set(cat, [amt])
   }
 
   const anomalies = (() => {
@@ -257,21 +267,21 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
       if (sd === 0) continue
       const threshold = m + 2 * sd
       for (const tx of rangeSpendTxs) {
-        const spend = resolveSpend(tx)
-        if (spend <= 0) continue
+        const spend = expenseAmount(tx)
+        if (spend === 0) continue
         if (safeCategory(tx) !== category) continue
         if (spend > threshold) {
           out.push({
             transaction: tx,
             category,
-            zScore: (spend - m) / sd,
+            zScore: (expenseAmount(tx) - m) / sd,
             categoryAverage: m,
             categoryStdDev: sd,
           })
         }
       }
     }
-    out.sort((a, b) => resolveSpend(b.transaction) - resolveSpend(a.transaction))
+    out.sort((a, b) => expenseAmount(b.transaction) - expenseAmount(a.transaction))
     return out.slice(0, 25)
   })()
 
@@ -293,14 +303,14 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
         if (!Number.isFinite(db)) continue
         if ((db - da) / 86_400_000 > 3) break
         if (normalizeMerchant(b.description) !== ma) continue
-        if (Math.abs(resolveSpend(a) - resolveSpend(b)) > 0.005) continue
+        if (Math.abs(expenseAmount(a) - expenseAmount(b)) > 0.005) continue
         const key = [a.id, b.id].sort().join('|')
         if (dupSeen.has(key)) continue
         dupSeen.add(key)
         out.push({
           merchantKey: ma,
           displayName: a.description.trim() || b.description.trim(),
-          amount: resolveSpend(a),
+          amount: expenseAmount(a),
           transactions: [a, b],
           daysApart: Math.abs(db - da) / 86_400_000,
         })
@@ -316,14 +326,14 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
 
   // Recurring: same merchant, amount within $1, >=2 consecutive months
   function clusterByAmountBand(txs: TransactionRow[], maxSpread: number): TransactionRow[][] {
-    const sorted = [...txs].sort((x, y) => resolveSpend(x) - resolveSpend(y))
+    const sorted = [...txs].sort((x, y) => expenseAmount(x) - expenseAmount(y))
     const clusters: TransactionRow[][] = []
     for (const tx of sorted) {
       let placed = false
       for (const cl of clusters) {
-        const amts = cl.map((t) => resolveSpend(t))
-        const lo = Math.min(...amts, resolveSpend(tx))
-        const hi = Math.max(...amts, resolveSpend(tx))
+        const amts = cl.map((t) => expenseAmount(t))
+        const lo = Math.min(...amts, expenseAmount(tx))
+        const hi = Math.max(...amts, expenseAmount(tx))
         if (hi - lo <= maxSpread) {
           cl.push(tx)
           placed = true
@@ -369,7 +379,7 @@ export function analyzeLocalTransactions(opts: AnalyzeLocalOptions): InsightsRes
         if (!hasConsecutiveMonthPair(distinctMonths)) continue
         const first = cluster[0]
         if (!first) continue
-        const typicalAmount = mean(cluster.map((t) => resolveSpend(t)))
+        const typicalAmount = mean(cluster.map((t) => expenseAmount(t)))
         const lastDate = cluster.reduce(
           (best, t) => (t.date > best ? t.date : best),
           first.date,

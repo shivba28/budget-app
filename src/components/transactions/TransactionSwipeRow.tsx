@@ -25,28 +25,52 @@ export function TransactionSwipeRow({
     if (tx.source === 'manual') {
       return (
         <View style={styles.actions}>
-          <Pressable onPress={() => { onEdit(tx); methods.close() }}
-            style={({ pressed }) => pressed && styles.pressed}>
-            <View style={[styles.iconBox, styles.editBox]}>
-              <Ionicons name="pencil" size={20} color={tokens.color.fg} />
-            </View>
+          <Pressable onPress={() => { onEdit(tx); methods.close() }}>
+            {({ pressed }) => (
+              <View
+                style={[
+                  styles.iconBox,
+                  styles.editBox,
+                  pressed && styles.iconBoxPressed,
+                ]}
+                pointerEvents="none"
+              >
+                <Ionicons name="pencil" size={20} color={tokens.color.fg} />
+              </View>
+            )}
           </Pressable>
-          <Pressable onPress={() => { onDelete(tx); methods.close() }}
-            style={({ pressed }) => pressed && styles.pressed}>
-            <View style={[styles.iconBox, styles.deleteBox]}>
-              <Ionicons name="trash" size={20} color="#fff" />
-            </View>
+          <Pressable onPress={() => { onDelete(tx); methods.close() }}>
+            {({ pressed }) => (
+              <View
+                style={[
+                  styles.iconBox,
+                  styles.deleteBox,
+                  pressed && styles.iconBoxPressed,
+                ]}
+                pointerEvents="none"
+              >
+                <Ionicons name="trash" size={20} color="#fff" />
+              </View>
+            )}
           </Pressable>
         </View>
       )
     }
     return (
       <View style={styles.actions}>
-        <Pressable onPress={() => { onAllocate(tx); methods.close() }}
-          style={({ pressed }) => pressed && styles.pressed}>
-          <View style={[styles.iconBox, styles.allocateBox]}>
-            <Ionicons name="albums-outline" size={22} color={tokens.color.fg} />
-          </View>
+        <Pressable onPress={() => { onAllocate(tx); methods.close() }}>
+          {({ pressed }) => (
+            <View
+              style={[
+                styles.iconBox,
+                styles.allocateBox,
+                pressed && styles.iconBoxPressed,
+              ]}
+              pointerEvents="none"
+            >
+              <Ionicons name="albums-outline" size={22} color={tokens.color.fg} />
+            </View>
+          )}
         </Pressable>
       </View>
     )
@@ -86,6 +110,11 @@ const styles = StyleSheet.create({
     borderColor: tokens.color.border,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: tokens.color.border,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
   editBox: {
     backgroundColor: '#D4D4C4',
@@ -96,7 +125,9 @@ const styles = StyleSheet.create({
   allocateBox: {
     backgroundColor: '#F5C842',
   },
-  pressed: {
-    opacity: 0.75,
+  iconBoxPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
   },
 })

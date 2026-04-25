@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import {
+  Animated,
   Platform,
   Pressable,
   RefreshControl,
@@ -19,7 +20,7 @@ import {
   Modal,
 } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
-import { useFocusEffect, useRouter } from 'expo-router'
+import { useRouter } from 'expo-router'
 import { useUiSignals } from '@/src/stores/uiSignals'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -45,6 +46,7 @@ import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import * as accountsQ from '@/src/db/queries/accounts'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
+import { useTabStore } from '@/src/stores/tabStore'
 
 /** Neobrutalist mock tokens (budget_app_neobrutalist_screens.html) */
 const NEO = {
@@ -95,6 +97,67 @@ function formatTxMoney(amount: number): string {
   return amount >= 0 ? `+${s}` : `-${s}`
 }
 
+const SKELETON_WIDTHS = [
+  ['62%', '18%'],
+  ['48%', '22%'],
+  ['71%', '16%'],
+  ['55%', '20%'],
+  ['40%', '24%'],
+  ['66%', '17%'],
+  ['53%', '21%'],
+  ['44%', '19%'],
+] as const
+
+function SkeletonRow({ index }: { index: number }) {
+  const opacity = useRef(new Animated.Value(1)).current
+  const [descW, amtW] = SKELETON_WIDTHS[index % SKELETON_WIDTHS.length]!
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 700,
+          delay: index * 80,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+    )
+    anim.start()
+    return () => anim.stop()
+  }, [opacity, index])
+
+  return (
+    <Animated.View
+      style={[
+        styles.txRow,
+        { borderLeftWidth: 4, borderLeftColor: '#D4D4C4', opacity },
+      ]}
+    >
+      <View style={styles.txRowTop}>
+        <View style={[styles.skeletonBar, { width: descW, height: 14 }]} />
+        <View style={[styles.skeletonBar, { width: amtW, height: 14 }]} />
+      </View>
+      <View style={[styles.skeletonBar, { width: '38%', height: 11, marginTop: 7 }]} />
+    </Animated.View>
+  )
+}
+
+function SkeletonList({ count = 10 }: { count?: number }) {
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {Array.from({ length: count }, (_, i) => (
+        <SkeletonRow key={i} index={i} />
+      ))}
+    </View>
+  )
+}
+
 const DATE_PRESETS: { key: DatePreset; label: string }[] = [
   { key: 'all', label: 'All dates' },
   { key: 'this_month', label: 'This month' },
@@ -105,6 +168,7 @@ const DATE_PRESETS: { key: DatePreset; label: string }[] = [
 export default function TransactionsScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const activeIndex = useTabStore((s) => s.activeIndex)
   /** Same as Insights `ScrollView` — space so the last rows clear the custom tab bar + FAB. */
   const listContentBottomPad = insets.bottom + 76
   const items = useTransactionsStore((s) => s.items)
@@ -127,6 +191,7 @@ export default function TransactionsScreen() {
   )
 
   const [refreshing, setRefreshing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [filters, setFilters] = useState<TransactionListFilters>({
     search: '',
     // Default to All dates so prior months (e.g. March) are visible.
@@ -134,7 +199,7 @@ export default function TransactionsScreen() {
     category: 'all',
     cashFlow: 'all',
     source: 'all',
-    includeUnconfirmedPending: false,
+    includeUnconfirmedPending: true,
   })
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [showCustomDate, setShowCustomDate] = useState(false)
@@ -152,20 +217,27 @@ export default function TransactionsScreen() {
     meta.getMeta(META_LAST_TELLER_SYNC_AT),
   )
 
+  // Initial load
   useEffect(() => {
-    void load()
+    void (async () => {
+      try {
+        await load()
+      } finally {
+        setIsLoading(false)
+      }
+    })()
     loadCategories()
     loadAccounts()
   }, [load, loadCategories, loadAccounts])
 
-  useFocusEffect(
-    useCallback(() => {
-      void load()
-      loadCategories()
-      loadAccounts()
-      setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-    }, [load, loadCategories, loadAccounts]),
-  )
+  // Reload when this tab becomes active (replaces useFocusEffect)
+  useEffect(() => {
+    if (activeIndex !== 0) return
+    void load()
+    loadCategories()
+    loadAccounts()
+    setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
+  }, [activeIndex, load, loadCategories, loadAccounts])
 
   useEffect(() => {
     if (addTransactionSignal <= mountedSignalRef.current) return
@@ -369,6 +441,7 @@ export default function TransactionsScreen() {
                   style={[
                     styles.txAmount,
                     isIncome && styles.txAmountIncome,
+                    tx.amount < 0 && styles.txAmountExpense,
                   ]}
                 >
                   {formatTxMoney(tx.amount)}
@@ -384,8 +457,12 @@ export default function TransactionsScreen() {
               {tx.effective_date ?? tx.date}
               {accountLabel ? ` · ${accountLabel}` : ''}
               {tx.category ? ` · ${tx.category}` : ''}
-              {tx.pending === 1 ? ' · pending' : ''}
             </Text>
+            {tx.pending === 1 ? 
+              <Text style={styles.txMeta}>
+                <Text style={styles.txPendingTag}>{'PENDING'}</Text>
+              </Text> 
+            : null}
           </View>
         </TransactionSwipeRow>
       )
@@ -513,27 +590,45 @@ export default function TransactionsScreen() {
 
       <View style={styles.body}>
         <View style={styles.listWrap}>
-          <FlashList
-            data={rows}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id}
-            getItemType={(item) => item.type}
-            stickyHeaderIndices={[]}
-            showsVerticalScrollIndicator={false}
-            extraData={extraData}
-            ListHeaderComponent={renderListHeader}
-            ListEmptyComponent={
-              <Text style={styles.empty}>
-                {items.length === 0
-                  ? 'No transactions yet. Add one to get started.'
-                  : 'No transactions match these filters.'}
-              </Text>
-            }
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-            contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
-          />
+          {refreshing || isLoading ? (
+            <FlashList
+              data={[]}
+              renderItem={() => null}
+              ListHeaderComponent={
+                <>
+                  {renderListHeader()}
+                  <SkeletonList count={10} />
+                </>
+              }
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              }
+              contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <FlashList
+              data={rows}
+              renderItem={renderItem}
+              keyExtractor={(item) => item.id}
+              getItemType={(item) => item.type}
+              stickyHeaderIndices={[]}
+              showsVerticalScrollIndicator={false}
+              extraData={extraData}
+              ListHeaderComponent={renderListHeader}
+              ListEmptyComponent={
+                <Text style={styles.empty}>
+                  {items.length === 0
+                    ? 'No transactions yet. Add one to get started.'
+                    : 'No transactions match these filters.'}
+                </Text>
+              }
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              }
+              contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
+            />
+          )}
         </View>
       </View>
 
@@ -934,6 +1029,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: NEO.ink,
   },
+  txPendingTag: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#CC2222',
+  },
   txAmountCol: {
     alignItems: 'flex-end',
   },
@@ -945,6 +1046,9 @@ const styles = StyleSheet.create({
   },
   txAmountIncome: {
     color: NEO.incomeGreen,
+  },
+  txAmountExpense: {
+    color: '#CC2222',
   },
   txShare: {
     fontFamily: NEO_MONO,
@@ -958,6 +1062,10 @@ const styles = StyleSheet.create({
     fontFamily: NEO_MONO,
     fontSize: 12,
     color: '#666666',
+  },
+  skeletonBar: {
+    backgroundColor: '#D4D4C4',
+    borderRadius: 2,
   },
   empty: {
     fontFamily: NEO_MONO,

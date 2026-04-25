@@ -142,12 +142,12 @@ export default function BankAccountsScreen() {
         <View style={ss.infoCard}>
           {busy ? <ActivityIndicator color={INK} style={{ marginBottom: 8 }} /> : null}
           <Text style={ss.infoText}>Last sync: {formatAgo(lastGlobal)}</Text>
-          <Text style={ss.infoText}>
-            {isTellerSandbox() ? 'Sandbox mode · standard TLS' : 'Live mode · mTLS may be required'}
-          </Text>
-          <Text style={[ss.infoText, { opacity: 0.6, marginTop: 4 }]}>
+          {/* <Text style={ss.infoText}>
+            {isTellerSandbox() ? 'Sandbox mode' : 'Live mode'}
+          </Text> */}
+          {/* <Text style={[ss.infoText, { opacity: 0.6, marginTop: 4 }]}>
             Teller Connect runs in a WebView — use an EAS development build, not Expo Go.
-          </Text>
+          </Text> */}
         </View>
 
         {/* Actions */}
@@ -336,7 +336,7 @@ const ss = StyleSheet.create({
   },
   infoText: {
     fontFamily: MONO,
-    fontSize: 13,
+    fontSize: 15,
     color: INK,
     lineHeight: 20,
   },

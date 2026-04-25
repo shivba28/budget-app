@@ -63,8 +63,11 @@ export function parseTellerTransaction(
     if (Number.isFinite(n)) amount = n
   }
 
+  // Teller sign convention:
+  // - Depository: negative = spending (debit), positive = deposit → keep as-is
+  // - Credit: positive = charge (spending), negative = payment/credit → flip so charges are negative
   const accountType = opts?.accountType?.trim().toLowerCase() ?? ''
-  if (accountType === 'depository') {
+  if (accountType === 'credit') {
     amount = -amount
   }
 

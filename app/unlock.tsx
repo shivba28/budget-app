@@ -232,11 +232,24 @@ export default function UnlockScreen() {
             <Pressable
               onPress={() => void tryUnlockWithBiometrics()}
               disabled={bioPending}
-              style={({ pressed }) => [styles.bioLink, bioPending && styles.bioLinkDisabled, pressed && !bioPending && { opacity: 0.75 }]}
+              style={({ pressed }) => [
+                pressed && !bioPending && { opacity: 0.9 },
+              ]}
             >
-              <Text style={styles.bioLinkText}>
-                {bioPending ? `${bioLabel}…` : `Use ${bioLabel}`}
-              </Text>
+              {({ pressed }) => (
+                <View
+                  style={[
+                    styles.bioBtn,
+                    bioPending && styles.bioBtnDisabled,
+                    pressed && !bioPending && styles.bioBtnPressed,
+                  ]}
+                  pointerEvents="none"
+                >
+                  <Text style={styles.bioBtnText}>
+                    {bioPending ? `${bioLabel}…` : `Use ${bioLabel}`}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           ) : null}
         </View>
@@ -334,22 +347,36 @@ const styles = StyleSheet.create({
   },
   statusError: { color: tokens.color.debit },
   statusSuccess: { color: '#3B6D11' },
-  bioLink: {
-    marginTop: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  bioBtn: {
+    marginTop: 6,
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    backgroundColor: tokens.color.card,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    shadowColor: tokens.color.border,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+    minWidth: 220,
   },
-  bioLinkDisabled: {
+  bioBtnPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  bioBtnDisabled: {
     opacity: 0.55,
   },
-  bioLinkText: {
+  bioBtnText: {
     fontFamily: tokens.font.mono,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     textTransform: 'uppercase',
     color: tokens.color.border,
-    textDecorationLine: 'underline',
     textAlign: 'center',
   },
 })

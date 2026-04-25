@@ -1,6 +1,5 @@
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 import { useUiSignals } from '@/src/stores/uiSignals'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
@@ -12,9 +11,9 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated'
 import { createAnimatedComponent } from 'react-native-reanimated'
-import { useState } from 'react'
 
-const FAB_TABS = new Set(['transactions', 'trips'])
+// Indices of tabs that show the FAB
+const FAB_INDICES = new Set([0, 2]) // 0=transactions, 2=trips
 
 const FAB = {
   ink: '#111111',
@@ -25,6 +24,18 @@ const FAB = {
 const AnimatedPressable = createAnimatedComponent(Pressable)
 const FAB_SIZE = 70
 const BAR_HEIGHT = 50
+
+const TAB_ICONS: Array<keyof typeof Ionicons.glyphMap> = [
+  'list',
+  'pie-chart',
+  'airplane',
+  'settings',
+]
+
+interface Props {
+  currentIndex: number
+  onTabPress: (index: number) => void
+}
 
 function AddButton({ onPress, a11yLabel }: { onPress: () => void; a11yLabel: string }) {
   const pressed = useSharedValue(0)
@@ -55,7 +66,17 @@ function AddButton({ onPress, a11yLabel }: { onPress: () => void; a11yLabel: str
   )
 }
 
-function FabSlot({ onPress, a11yLabel, visible, bottomPad }: { onPress: () => void; a11yLabel: string; visible: boolean; bottomPad: number }) {
+function FabSlot({
+  onPress,
+  a11yLabel,
+  visible,
+  bottomPad,
+}: {
+  onPress: () => void
+  a11yLabel: string
+  visible: boolean
+  bottomPad: number
+}) {
   const [mounted, setMounted] = useState(visible)
   const translateY = useSharedValue(visible ? 0 : 100)
   const opacity = useSharedValue(visible ? 1 : 0)
@@ -83,59 +104,45 @@ function FabSlot({ onPress, a11yLabel, visible, bottomPad }: { onPress: () => vo
   if (!mounted) return null
 
   return (
-    <Animated.View style={[styles.fabOverlay, { bottom: bottomPad + ((BAR_HEIGHT + 10) - FAB_SIZE) / 2 }, animStyle]}>
+    <Animated.View
+      style={[
+        styles.fabOverlay,
+        { bottom: bottomPad + ((BAR_HEIGHT + 10) - FAB_SIZE) / 2 },
+        animStyle,
+      ]}
+    >
       <AddButton onPress={onPress} a11yLabel={a11yLabel} />
     </Animated.View>
   )
 }
 
-function TabIcon({ name, active }: { name: string; active: boolean }) {
-  const iconName =
-    name === 'transactions'
-      ? 'list'
-      : name === 'insights'
-        ? 'pie-chart'
-        : name === 'trips'
-          ? 'airplane'
-          : 'settings'
-
+function TabIcon({ index, active }: { index: number; active: boolean }) {
   return (
     <View style={{ opacity: active ? 1 : 0.7 }}>
-      <Ionicons name={iconName} size={28} color={FAB.icon} />
+      <Ionicons name={TAB_ICONS[index]!} size={28} color={FAB.icon} />
     </View>
   )
 }
 
-export function TabBarWithCenterFab(props: BottomTabBarProps) {
+export function TabBarWithCenterFab({ currentIndex, onTabPress }: Props) {
   const triggerAddTrip = useUiSignals((s) => s.triggerAddTrip)
   const triggerAddTransaction = useUiSignals((s) => s.triggerAddTransaction)
   const insets = useSafeAreaInsets()
-  const routeName = props.state.routes[props.state.index]?.name
-  const activeRoute = props.state.routes[props.state.index]
-  const nestedStackDepth = (activeRoute?.state as any)?.index ?? 0
 
-  const showFab = routeName != null && FAB_TABS.has(routeName)
+  const showFab = FAB_INDICES.has(currentIndex)
   const bottomPad = Math.max(insets.bottom, 10)
 
   const onFabPress = () => {
-    if (routeName === 'transactions') triggerAddTransaction()
-    else if (routeName === 'trips') triggerAddTrip()
+    if (currentIndex === 0) triggerAddTransaction()
+    else if (currentIndex === 2) triggerAddTrip()
   }
 
-  const a11yLabel = routeName === 'transactions' ? 'Add transaction' : 'Add trip'
+  const a11yLabel = currentIndex === 0 ? 'Add transaction' : 'Add trip'
 
-  const slots = useMemo(() => {
-    const byName = new Map(props.state.routes.map((r) => [r.name, r]))
-    const order = showFab
-      ? (['transactions', 'insights', '__add__', 'trips', 'settings'] as const)
-      : (['transactions', 'insights', 'trips', 'settings'] as const)
-    return order.map((name) => {
-      if (name === '__add__') return null
-      return byName.get(name) ?? null
-    })
-  }, [props.state.routes, showFab])
-
-  if (nestedStackDepth > 0) return null
+  // Build the slot list: 4 tab icons with a centre placeholder when FAB is shown
+  const slots = showFab
+    ? [0, 1, '__add__' as const, 2, 3]
+    : [0, 1, 2, 3]
 
   return (
     <View style={styles.wrap}>
@@ -145,42 +152,28 @@ export function TabBarWithCenterFab(props: BottomTabBarProps) {
       >
         <View style={styles.floatingBar}>
           <Animated.View style={styles.row} layout={LinearTransition.duration(260)}>
-            {slots.map((route, i) => {
-              if (showFab && i === 2) {
+            {slots.map((slot, i) => {
+              if (slot === '__add__') {
                 return <View key="__add__" style={styles.fabPlaceholder} />
               }
-              if (!route) return <View key={`missing-${i}`} style={styles.item} />
-
-              const idx = props.state.routes.findIndex((r) => r.key === route.key)
-              const isFocused = props.state.index === idx
-              const onPress = () => {
-                const event = props.navigation.emit({
-                  type: 'tabPress',
-                  target: route.key,
-                  canPreventDefault: true,
-                })
-                if (!isFocused && !event.defaultPrevented) {
-                  props.navigation.navigate(route.name as never)
-                }
-              }
-
+              const tabIndex = slot as number
+              const isFocused = currentIndex === tabIndex
               return (
                 <AnimatedPressable
-                  key={route.key}
-                  onPress={onPress}
+                  key={tabIndex}
+                  onPress={() => onTabPress(tabIndex)}
                   style={({ pressed }) => [styles.item, pressed && { opacity: 0.75 }]}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isFocused }}
                   layout={LinearTransition.duration(260)}
                 >
-                  <TabIcon name={route.name} active={isFocused} />
+                  <TabIcon index={tabIndex} active={isFocused} />
                 </AnimatedPressable>
               )
             })}
           </Animated.View>
         </View>
 
-        {/* FAB outside floatingBar, manually animated */}
         <FabSlot
           visible={showFab}
           onPress={onFabPress}
@@ -198,8 +191,8 @@ const styles = StyleSheet.create({
   },
   floatingWrap: {
     position: 'absolute',
-    left: 14,
-    right: 14,
+    left: 10,
+    right: 10,
     zIndex: 5,
   },
   floatingBar: {
@@ -207,7 +200,7 @@ const styles = StyleSheet.create({
     borderColor: FAB.ink,
     backgroundColor: FAB.ink,
     borderRadius: 18,
-    overflow: 'hidden',  
+    overflow: 'hidden',
     elevation: 6,
   },
   row: {

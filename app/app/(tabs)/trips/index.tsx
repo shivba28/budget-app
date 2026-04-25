@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Platform,
   Pressable,
@@ -8,13 +8,14 @@ import {
   View,
 } from 'react-native'
 import { BottomSheetModal } from '@gorhom/bottom-sheet'
-import { useFocusEffect, useRouter } from 'expo-router'
+import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import * as txq from '@/src/db/queries/transactions'
 import { TripNewBottomSheet } from '@/src/components/trips/TripNewBottomSheet'
 import { useTripsStore } from '@/src/stores/tripsStore'
 import { useUiSignals } from '@/src/stores/uiSignals'
+import { useTabStore } from '@/src/stores/tabStore'
 
 const CREAM = '#FAFAF5'
 const INK = '#111111'
@@ -47,6 +48,7 @@ function tripMeta(trip: { budget_limit: number | null; start_date: string | null
 }
 
 export default function TripsListScreen() {
+  const activeIndex = useTabStore((s) => s.activeIndex)
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const items = useTripsStore((s) => s.items)
@@ -56,8 +58,10 @@ export default function TripsListScreen() {
   const mountedTripSignalRef = useRef(addTripSignal)
   const [pendingNavId, setPendingNavId] = useState<number | null>(null)
 
+  // Initial load
   useEffect(() => { load() }, [load])
-  useFocusEffect(useCallback(() => { load() }, [load]))
+  // Reload when trips tab becomes active (replaces useFocusEffect)
+  useEffect(() => { if (activeIndex === 2) load() }, [activeIndex, load])
 
   useEffect(() => {
     if (addTripSignal <= mountedTripSignalRef.current) return
@@ -70,7 +74,7 @@ export default function TripsListScreen() {
 
   const onSheetDismiss = () => {
     if (pendingNavId !== null) {
-      router.push(`/app/(tabs)/trips/${pendingNavId}`)
+      router.push(`/app/trip/${pendingNavId}`)
       setPendingNavId(null)
     }
   }
@@ -112,7 +116,7 @@ export default function TripsListScreen() {
             return (
               <Pressable
                 key={trip.id}
-                onPress={() => router.push(`/app/(tabs)/trips/${trip.id}`)}
+                onPress={() => router.push(`/app/trip/${trip.id}`)}
                 style={({ pressed }) => pressed && { opacity: 0.85 }}
               >
                 <View style={styles.tripCard}>

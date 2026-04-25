@@ -120,8 +120,12 @@ export function TellerConnectWebView({
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.toolbar}>
         <Text style={styles.toolbarTitle}>Teller Connect</Text>
-        <Pressable onPress={onExit} style={styles.closeHit} hitSlop={12}>
-          <Text style={styles.closeText}>Close</Text>
+        <Pressable onPress={onExit} hitSlop={8}>
+          {({ pressed }) => (
+            <View style={[styles.closeBtn, pressed && styles.closeBtnPressed]} pointerEvents="none">
+              <Text style={styles.closeText}>Close</Text>
+            </View>
+          )}
         </Pressable>
       </View>
       <WebView
@@ -162,12 +166,31 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: tokens.color.fg,
   },
-  closeHit: { paddingVertical: 4, paddingHorizontal: 8 },
+  closeBtn: {
+    backgroundColor: tokens.color.accent,
+    borderWidth: 3,
+    borderColor: tokens.color.border,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    shadowColor: tokens.color.border,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  closeBtnPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   closeText: {
     fontFamily: tokens.font.mono,
-    fontSize: 14,
-    fontWeight: '700',
-    color: tokens.color.accent,
+    fontSize: 13,
+    fontWeight: '800',
+    color: tokens.color.border,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   web: { flex: 1, backgroundColor: '#fff' },
 })

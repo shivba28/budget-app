@@ -1,5 +1,7 @@
 import { TELLER_API_BASE } from './constants'
 import { unwrapAccountList, unwrapTransactionList } from './txMap'
+import { getTellerEnvironment } from './connect'
+import { tellerMtlsRequest } from './mtls'
 
 export class TellerHttpError extends Error {
   readonly status: number
@@ -14,10 +16,12 @@ export class TellerHttpError extends Error {
 
   static async fromResponse(res: Response): Promise<TellerHttpError> {
     const t = await res.text()
+    const body = t.slice(0, 500)
+    const detail = body.length > 0 ? ` — ${body}` : ''
     return new TellerHttpError(
       res.status,
-      `Teller API ${res.status} ${res.statusText}`,
-      t.slice(0, 500),
+      `Teller API ${res.status}${res.statusText ? ` ${res.statusText}` : ''}${detail}`,
+      body,
     )
   }
 }
@@ -51,13 +55,32 @@ export async function tellerFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const url = path.startsWith('http') ? path : `${TELLER_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    Authorization: basicAuthHeader(accessToken),
+    ...(init?.headers as any),
+  }
+
+  // Sandbox works with normal TLS. Development/Production require client cert (mTLS).
+  if (getTellerEnvironment() !== 'sandbox') {
+    const res = await tellerMtlsRequest(url, {
+      method: init?.method ?? 'GET',
+      headers,
+      body: typeof init?.body === 'string' ? init.body : undefined,
+    })
+    // Wrap into a minimal Response-like object.
+    return {
+      ok: res.ok,
+      status: res.status,
+      statusText: '',
+      text: res.text,
+      json: res.json as any,
+    } as Response
+  }
+
   return fetch(url, {
     ...init,
-    headers: {
-      Accept: 'application/json',
-      ...init?.headers,
-      Authorization: basicAuthHeader(accessToken),
-    },
+    headers,
   })
 }
 

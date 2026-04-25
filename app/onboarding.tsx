@@ -37,6 +37,7 @@ const INK = tokens.color.fg
 const EYEBROW = '#FF3B00'
 const BLUE = '#0047FF'
 const CHART_YELLOW = '#FFD600'
+const YELLOW = '#F5C842'
 const GRAY = '#888888'
 const FEAT_EYEBROW = '#FFD600'
 const ORANGE_LINE = '#FF3B00'
@@ -68,9 +69,9 @@ function randomDonutSlices(): { label: string; value: number; color: string }[] 
   }))
 }
 
-// —— Skia donut (same sweep animation pattern as insights) ——
-const DONUT_SIZE = 100
-const STROKE_WIDTH = 14
+// —— Skia donut ——
+const DONUT_SIZE = 160
+const STROKE_WIDTH = 20
 const RADIUS = (DONUT_SIZE - STROKE_WIDTH) / 2
 const CENTER = DONUT_SIZE / 2
 const GAP_DEGREES = 1
@@ -195,7 +196,8 @@ function OnboardingDonut({
   const totalDollars = useMemo(() => randInt(2500, 8200), [values])
 
   return (
-    <View style={styles.donutRow}>
+    // Column layout: donut centered, legend below
+    <View style={styles.donutCol}>
       <View style={styles.donutCanvasWrap}>
         <Canvas style={{ width: DONUT_SIZE, height: DONUT_SIZE + 1 }}>
           <Path
@@ -224,6 +226,8 @@ function OnboardingDonut({
           <Text style={styles.donutCenterSub}>total</Text>
         </View>
       </View>
+
+      {/* Legend below the donut */}
       <View style={styles.donutLegend}>
         {data.map((it) => (
           <View key={it.label} style={styles.legendRow}>
@@ -257,7 +261,7 @@ function OnboardingBarChart({ active }: { active: boolean }) {
     })
   }, [active, progress])
 
-  const barH = 80
+  const barH = 230
 
   return (
     <View>
@@ -329,18 +333,20 @@ function BarPair({
   )
 }
 
+// Steeper line: y goes from 90 (near bottom) to 3 (near top) over x 10–210
+// viewBox "0 0 220 110"  — baseline at y=97, labels at y=107
 const LINE_PTS: [number, number][] = [
-  [10, 72],
-  [30, 68],
-  [50, 63],
-  [70, 58],
-  [90, 50],
-  [110, 44],
-  [130, 36],
-  [150, 29],
-  [170, 24],
-  [190, 17],
-  [210, 10],
+  [10, 90],
+  [30, 80],
+  [50, 68],
+  [70, 57],
+  [90, 45],
+  [110, 34],
+  [130, 24],
+  [150, 15],
+  [170, 9],
+  [190, 5],
+  [210, 3],
 ]
 
 function polylineLength(pts: [number, number][]): number {
@@ -373,26 +379,31 @@ function OnboardingLineChart({ active }: { active: boolean }) {
     })
   }, [active, progress])
 
-  const fillD = `${LINE_PATH_D} L210,75 L10,75 Z`
+  // Fill closes at the baseline (y=97)
+  const fillD = `${LINE_PATH_D} L210,97 L10,97 Z`
 
   const lineProps = useAnimatedProps(() => ({
     strokeDashoffset: LINE_LEN * (1 - progress.value),
   }))
 
   const fillProps = useAnimatedProps(() => ({
-    opacity: 0.08 * progress.value,
+    opacity: 0.1 * progress.value,
   }))
 
   return (
-    <Svg width="100%" height={90} viewBox="0 0 220 90" preserveAspectRatio="xMidYMid meet">
-      <Line x1="0" y1="75" x2="220" y2="75" stroke="#ddd" strokeWidth={1} />
-      <Line x1="0" y1="50" x2="220" y2="50" stroke="#ddd" strokeWidth={0.5} />
-      <Line x1="0" y1="25" x2="220" y2="25" stroke="#ddd" strokeWidth={0.5} />
+    <Svg width="100%" height={230} viewBox="0 0 220 110" preserveAspectRatio="xMidYMid meet">
+      {/* Baseline and grid lines */}
+      <Line x1="0" y1="97" x2="220" y2="97" stroke="#ddd" strokeWidth={1} />
+      <Line x1="0" y1="66" x2="220" y2="66" stroke="#ddd" strokeWidth={0.5} />
+      <Line x1="0" y1="35" x2="220" y2="35" stroke="#ddd" strokeWidth={0.5} />
+
+      {/* Fill under line */}
       <AnimatedSvgPath
         d={fillD}
         fill={ORANGE_LINE}
         animatedProps={fillProps}
       />
+      {/* Line */}
       <AnimatedSvgPath
         d={LINE_PATH_D}
         fill="none"
@@ -403,19 +414,25 @@ function OnboardingLineChart({ active }: { active: boolean }) {
         strokeDasharray={`${LINE_LEN}`}
         animatedProps={lineProps}
       />
-      <Circle cx={10} cy={72} r={3} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
-      <Circle cx={110} cy={44} r={3} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
-      <Circle cx={210} cy={10} r={3} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
-      <SvgText x={207} y={8} fontSize={6} fill={INK} textAnchor="end" fontFamily={MONO}>
+
+      {/* Anchor dots */}
+      <Circle cx={10} cy={90} r={3.5} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
+      <Circle cx={110} cy={34} r={3.5} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
+      <Circle cx={210} cy={3} r={3.5} fill={ORANGE_LINE} stroke={INK} strokeWidth={1.2} />
+
+      {/* Value label at peak */}
+      <SvgText x={207} y={12} fontSize={7} fill={INK} textAnchor="end" fontFamily={MONO}>
         $4,800
       </SvgText>
-      <SvgText x={7} y={85} fontSize={6} fill={GRAY} fontFamily={MONO}>
+
+      {/* Month labels below baseline */}
+      <SvgText x={7} y={108} fontSize={7} fill={GRAY} fontFamily={MONO}>
         Jan
       </SvgText>
-      <SvgText x={110} y={85} fontSize={6} fill={GRAY} textAnchor="middle" fontFamily={MONO}>
+      <SvgText x={110} y={108} fontSize={7} fill={GRAY} textAnchor="middle" fontFamily={MONO}>
         Jun
       </SvgText>
-      <SvgText x={210} y={85} fontSize={6} fill={GRAY} textAnchor="end" fontFamily={MONO}>
+      <SvgText x={213} y={108} fontSize={7} fill={GRAY} textAnchor="end" fontFamily={MONO}>
         Dec
       </SvgText>
     </Svg>
@@ -497,7 +514,7 @@ const SLIDES: SlideDef[] = [
     eyebrow: 'Features',
     title: ['LOCK IT', 'DOWN.'],
     body: 'On-device. PIN + Face ID. Trip envelopes. All of it — yours.',
-    variant: 'dark',
+    variant: 'light',
   },
 ]
 
@@ -549,14 +566,30 @@ export default function OnboardingScreen() {
     ({ item, index: i }) => {
       const isDark = item.variant === 'dark'
       const active = i === index
+      const centerHero = item.key === '1'
       return (
         <View style={[styles.slide, isDark && styles.slideDark, { width: SCREEN_W }]}>
-          <Text style={[styles.slideEyebrow, isDark && styles.slideEyebrowDark]}>{item.eyebrow}</Text>
-          <Text style={[styles.slideTitle, isDark && styles.slideTitleDark]}>{item.title[0]}</Text>
-          <Text style={[styles.slideTitle, isDark && styles.slideTitleDark]}>{item.title[1]}</Text>
-          <Text style={[styles.slideBody, isDark && styles.slideBodyDark]}>{item.body}</Text>
+          {/* Text block — centered for all slides */}
+          {centerHero ? null : (
+            <View style={styles.slideTextWrap}>
+              <Text style={[styles.slideEyebrow, isDark && styles.slideEyebrowDark]}>
+                {item.eyebrow}
+              </Text>
+              <Text style={[styles.slideTitle, isDark && styles.slideTitleDark]}>{item.title[0]}</Text>
+              <Text style={[styles.slideTitle, isDark && styles.slideTitleDark]}>{item.title[1]}</Text>
+              <Text style={[styles.slideBody, isDark && styles.slideBodyDark]}>{item.body}</Text>
+            </View>
+          )}
 
+          {/* Chart / visual area */}
           <View style={styles.chartFlex}>
+            {centerHero ? (
+              <View style={styles.heroBlock}>
+                <Text style={styles.heroEyebrow}>{item.eyebrow}</Text>
+                <Text style={styles.heroTitle}>{item.title[0]}</Text>
+                <Text style={styles.heroTitle}>{item.title[1]}</Text>
+              </View>
+            ) : null}
             {item.key === '1' ? (
               <View style={styles.chartArea}>
                 <Text style={styles.chartTag}>Monthly overview</Text>
@@ -579,12 +612,12 @@ export default function OnboardingScreen() {
               <View style={styles.darkCharts}>
                 <View style={styles.featGrid}>
                   <FeatCard
-                    icon={<Ionicons name="lock-closed-outline" size={14} color={FEAT_EYEBROW} />}
+                    icon={<Ionicons name="lock-closed-outline" size={14} color={INK} />}
                     title="PIN + FaceID"
                     body="Secure enclave. Never transmitted."
                   />
                   <FeatCard
-                    icon={<Ionicons name="time-outline" size={14} color={FEAT_EYEBROW} />}
+                    icon={<Ionicons name="time-outline" size={14} color={INK} />}
                     title="Auto-lock"
                     body="Inactivity locks instantly."
                   />
@@ -594,7 +627,7 @@ export default function OnboardingScreen() {
                     body="Donut, bar & line — always on."
                   />
                   <FeatCard
-                    icon={<Ionicons name="airplane-outline" size={14} color={FEAT_EYEBROW} />}
+                    icon={<Ionicons name="airplane-outline" size={14} color={INK} />}
                     title="Trip Budgets"
                     body="Envelopes per adventure."
                   />
@@ -611,15 +644,6 @@ export default function OnboardingScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
-      <View style={styles.slideLabelRow}>
-        <View style={styles.slidePill}>
-          <Text style={styles.slidePillText}>Slide</Text>
-        </View>
-        <Text style={styles.slideCounter}>
-          {index + 1} / {SLIDES.length}
-        </Text>
-      </View>
-
       <FlatList
         ref={listRef}
         style={styles.list}
@@ -647,8 +671,13 @@ export default function OnboardingScreen() {
             </Pressable>
           ))}
         </View>
-        <Pressable onPress={next} style={({ pressed }) => [styles.cta, pressed && { opacity: 0.92 }]}>
-          <Text style={styles.ctaText}>{index >= SLIDES.length - 1 ? 'Get started' : 'Next →'}</Text>
+        {/* CTA — neobrutalist style with press animation */}
+        <Pressable onPress={next}>
+          {({ pressed }) => (
+            <View style={[styles.cta, pressed && styles.ctaPressed]} pointerEvents="none">
+              <Text style={styles.ctaText}>{index >= SLIDES.length - 1 ? 'Get started' : 'Next →'}</Text>
+            </View>
+          )}
         </Pressable>
       </View>
     </View>
@@ -678,89 +707,104 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: CREAM,
   },
-  slideLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  slidePill: {
-    backgroundColor: INK,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  slidePillText: {
-    fontFamily: MONO,
-    fontSize: 10,
-    fontWeight: '700',
-    color: CREAM,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  slideCounter: {
-    fontFamily: MONO,
-    fontSize: 12,
-    color: GRAY,
-  },
   list: {
     flex: 1,
   },
   slide: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 4,
+    paddingVertical: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   slideDark: {
     backgroundColor: INK,
-    marginHorizontal: 0,
+  },
+
+  // ── Text block (slides 2-4) ──────────────────────────────────────
+  slideTextWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   slideEyebrow: {
     fontFamily: MONO,
-    fontSize: 9,
+    fontSize: 19,
     fontWeight: '700',
     letterSpacing: 3,
     textTransform: 'uppercase',
     color: EYEBROW,
     marginBottom: 4,
+    textAlign: 'center',
   },
   slideEyebrowDark: {
     color: FEAT_EYEBROW,
   },
   slideTitle: {
     fontFamily: DISPLAY,
-    fontSize: 38,
-    lineHeight: 38,
+    fontSize: 48,
+    lineHeight: 48,
     fontWeight: Platform.OS === 'android' ? '700' : undefined,
     color: INK,
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   slideTitleDark: {
     color: CREAM,
   },
   slideBody: {
     fontFamily: MONO,
-    fontSize: 10,
+    fontSize: 11,
     color: INK,
     opacity: 0.6,
-    lineHeight: 15,
-    marginTop: 6,
-    marginBottom: 12,
+    lineHeight: 16,
+    marginTop: 8,
+    textAlign: 'center',
   },
   slideBodyDark: {
     color: CREAM,
   },
+
+  // ── Chart flex wrapper ───────────────────────────────────────────
   chartFlex: {
-    flex: 1,
-    minHeight: 0,
-    justifyContent: 'center',
+    width: '100%',
+    alignItems: 'center',
   },
+
+  // ── Hero (slide 1) ───────────────────────────────────────────────
+  heroBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  heroEyebrow: {
+    fontFamily: MONO,
+    fontSize: 19,
+    fontWeight: '700',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    color: EYEBROW,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  heroTitle: {
+    fontFamily: DISPLAY,
+    fontSize: 48,
+    lineHeight: 48,
+    fontWeight: Platform.OS === 'android' ? '700' : undefined,
+    color: INK,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+
+  // ── Chart card ───────────────────────────────────────────────────
   chartArea: {
     width: '100%',
     backgroundColor: tokens.color.card,
     borderWidth: 2,
     borderColor: INK,
-    padding: 12,
+    padding: 14,
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
@@ -774,12 +818,13 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textTransform: 'uppercase',
     color: GRAY,
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  donutRow: {
-    flexDirection: 'row',
+
+  // ── Donut (column: chart on top, legend below) ───────────────────
+  donutCol: {
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
   donutCanvasWrap: {
     width: DONUT_SIZE,
@@ -793,19 +838,21 @@ const styles = StyleSheet.create({
   },
   donutCenterValue: {
     fontFamily: DISPLAY,
-    fontSize: 12,
+    fontSize: 13,
     color: INK,
     fontWeight: Platform.OS === 'android' ? '700' : undefined,
   },
   donutCenterSub: {
     fontFamily: MONO,
-    fontSize: 7,
+    fontSize: 8,
     color: GRAY,
     marginTop: 2,
   },
   donutLegend: {
-    flex: 1,
-    gap: 5,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
   },
   legendRow: {
     flexDirection: 'row',
@@ -813,36 +860,37 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   legendSq: {
-    width: 8,
-    height: 8,
+    width: 9,
+    height: 9,
     borderWidth: 1,
     borderColor: INK,
   },
   legendText: {
     fontFamily: MONO,
-    fontSize: 9,
+    fontSize: 10,
     color: INK,
-    flex: 1,
   },
+
+  // ── Bar chart ────────────────────────────────────────────────────
   barLegendRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
+    gap: 12,
+    marginBottom: 10,
   },
   barLegendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
   },
   barLegendSwatch: {
-    width: 8,
-    height: 8,
+    width: 10,
+    height: 10,
     borderWidth: 1,
     borderColor: INK,
   },
   barLegendText: {
     fontFamily: MONO,
-    fontSize: 8,
+    fontSize: 11,
     color: INK,
   },
   barChart: {
@@ -865,18 +913,20 @@ const styles = StyleSheet.create({
   barMonthRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 5,
+    marginTop: 6,
   },
   barMonth: {
     fontFamily: MONO,
-    fontSize: 8,
+    fontSize: 11,
     color: GRAY,
     flex: 1,
     textAlign: 'center',
   },
+
+  // ── Dark slide (slide 4) ─────────────────────────────────────────
   darkCharts: {
     width: '100%',
-    gap: 8,
+    gap: 10,
   },
   featGrid: {
     flexDirection: 'row',
@@ -885,17 +935,22 @@ const styles = StyleSheet.create({
   },
   featCard: {
     width: (SCREEN_W - 40 - 6) / 2,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: CREAM,
+    borderWidth: 2,
+    borderColor: INK,
     padding: 10,
+    shadowColor: INK,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 2,
   },
   featIcon: {
     width: 24,
     height: 24,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: YELLOW,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: INK,
     marginBottom: 6,
     alignItems: 'center',
     justifyContent: 'center',
@@ -904,7 +959,7 @@ const styles = StyleSheet.create({
     fontFamily: MONO,
     fontSize: 9,
     fontWeight: '700',
-    color: '#fff',
+    color: INK,
     marginBottom: 2,
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -912,22 +967,29 @@ const styles = StyleSheet.create({
   featBody: {
     fontFamily: MONO,
     fontSize: 8,
-    color: 'rgba(255,255,255,0.5)',
+    color: INK,
+    opacity: 0.55,
     lineHeight: 12,
   },
   tripCard: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: CREAM,
+    borderWidth: 2,
+    borderColor: INK,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    shadowColor: INK,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 2,
   },
   tripLabel: {
     fontFamily: MONO,
     fontSize: 8,
     letterSpacing: 2,
     textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.4)',
+    color: INK,
+    opacity: 0.45,
     marginBottom: 3,
   },
   tripAmountRow: {
@@ -939,7 +1001,7 @@ const styles = StyleSheet.create({
   tripAmount: {
     fontFamily: DISPLAY,
     fontSize: 22,
-    color: CREAM,
+    color: INK,
     lineHeight: 24,
     fontWeight: Platform.OS === 'android' ? '700' : undefined,
   },
@@ -951,19 +1013,21 @@ const styles = StyleSheet.create({
     fontFamily: MONO,
     fontSize: 10,
     fontWeight: '700',
-    color: FEAT_EYEBROW,
+    color: EYEBROW,
   },
   tripTrack: {
     height: 5,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(17,17,17,0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: INK,
     overflow: 'hidden',
   },
   tripFill: {
     height: '100%',
-    backgroundColor: FEAT_EYEBROW,
+    backgroundColor: BLUE,
   },
+
+  // ── Footer ───────────────────────────────────────────────────────
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -975,7 +1039,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 7,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   dot: {
     width: 8,
@@ -989,25 +1053,32 @@ const styles = StyleSheet.create({
   dotInactive: {
     backgroundColor: 'transparent',
   },
+
+  // ── CTA button — neobrutalist, matches app style ─────────────────
   cta: {
     width: '100%',
-    backgroundColor: INK,
-    borderWidth: 2,
+    backgroundColor: YELLOW,
+    borderWidth: 3,
     borderColor: INK,
-    paddingVertical: 13,
+    paddingVertical: 14,
     alignItems: 'center',
-    shadowColor: EYEBROW,
+    shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 0,
-    elevation: 4,
+    elevation: 3,
+  },
+  ctaPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
   },
   ctaText: {
     fontFamily: MONO,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     letterSpacing: 2,
     textTransform: 'uppercase',
-    color: CREAM,
+    color: INK,
   },
 })

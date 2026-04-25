@@ -11,6 +11,7 @@ import { InactivityWatcher } from '@/src/auth/InactivityWatcher'
 import { useAuthStore } from '@/src/auth/authStore'
 import { ensureDbReady } from '@/src/db'
 import { ensureNotificationPermissionsOnce } from '@/src/lib/notifications'
+import { ensureTellerMtlsConfigured } from '@/src/lib/teller/mtls'
 import { tokens } from '@/src/theme/tokens'
 
 function AuthTouchRoot({ children }: { children: React.ReactNode }) {
@@ -35,6 +36,8 @@ export default function RootLayout() {
       // Request local notification permission once on first run.
       // (Budget alerts are local-only; no remote push infra.)
       await ensureNotificationPermissionsOnce().catch(() => {})
+      // Configure Teller mTLS (dev/prod); safe no-op in sandbox.
+      await ensureTellerMtlsConfigured().catch(() => {})
       if (!cancelled) setDbReady(true)
     })()
     return () => {
