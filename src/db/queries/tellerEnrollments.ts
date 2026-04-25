@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { InferSelectModel } from 'drizzle-orm'
 
-import { db } from '../index'
+import { db } from '../client'
 import { teller_enrollments } from '../schema'
 
 export type TellerEnrollmentRow = InferSelectModel<typeof teller_enrollments>

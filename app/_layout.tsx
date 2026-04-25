@@ -10,6 +10,7 @@ import { Stack } from 'expo-router'
 import { InactivityWatcher } from '@/src/auth/InactivityWatcher'
 import { useAuthStore } from '@/src/auth/authStore'
 import { ensureDbReady } from '@/src/db'
+import { ensureNotificationPermissionsOnce } from '@/src/lib/notifications'
 import { tokens } from '@/src/theme/tokens'
 
 function AuthTouchRoot({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,9 @@ export default function RootLayout() {
     void (async () => {
       await ensureDbReady()
       await hydrateFromStorage()
+      // Request local notification permission once on first run.
+      // (Budget alerts are local-only; no remote push infra.)
+      await ensureNotificationPermissionsOnce().catch(() => {})
       if (!cancelled) setDbReady(true)
     })()
     return () => {

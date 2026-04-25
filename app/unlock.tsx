@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, StyleSheet, Text, View } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useFocusEffect, useRouter } from 'expo-router'
 import * as SecureStore from 'expo-secure-store'
 
+import {
+  authenticateWithBiometrics,
+  canUseDeviceBiometrics,
+  getBiometricUnlockLabel,
+} from '@/src/auth/biometrics'
 import { useAuthStore } from '@/src/auth/authStore'
 import { SECURE } from '@/src/auth/constants'
 import { verifyPin } from '@/src/auth/pin'
@@ -20,14 +25,79 @@ export default function UnlockScreen() {
   const verifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [locked, setLocked] = useState(false)
+  const [bioPending, setBioPending] = useState(false)
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioLabel, setBioLabel] = useState('Biometrics')
   const shakeX = useRef(new Animated.Value(0)).current
+  /** Prefetched so verify doesn’t wait on SecureStore after the 4th digit. */
+  const pinHashRef = useRef<string | null | undefined>(undefined)
 
-  const completeUnlock = () => {
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const h = await SecureStore.getItemAsync(SECURE.PIN_HASH)
+        if (!cancelled) pinHashRef.current = h ?? null
+      } catch {
+        if (!cancelled) pinHashRef.current = null
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      if (await canUseDeviceBiometrics()) {
+        setBioAvailable(true)
+        setBioLabel(await getBiometricUnlockLabel())
+      }
+    })()
+  }, [])
+
+  const completeUnlock = useCallback(() => {
     const { recordUnlockPersisted, unlockSession } = useAuthStore.getState()
     recordUnlockPersisted()
     unlockSession()
     router.replace('/app')
-  }
+  }, [router])
+
+  const tryUnlockWithBiometrics = useCallback(async () => {
+    if (!(await canUseDeviceBiometrics())) return
+    setBioPending(true)
+    setStatus('idle')
+    setStatusMsg('')
+    try {
+      const ok = await authenticateWithBiometrics()
+      if (ok) completeUnlock()
+    } finally {
+      setBioPending(false)
+    }
+  }, [completeUnlock])
+
+  /** When this screen is shown (e.g. after inactivity), offer Face ID / Touch ID first; cancel → PIN. */
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false
+      void (async () => {
+        if (!(await canUseDeviceBiometrics())) return
+        setBioPending(true)
+        setStatus('idle')
+        setStatusMsg('')
+        const ok = await authenticateWithBiometrics()
+        if (cancelled) {
+          setBioPending(false)
+          return
+        }
+        setBioPending(false)
+        if (ok) completeUnlock()
+      })()
+      return () => {
+        cancelled = true
+      }
+    }, [completeUnlock]),
+  )
 
   const clearPin = () => {
     setPin('')
@@ -39,7 +109,11 @@ export default function UnlockScreen() {
   const onSubmitPin = async (candidate: string) => {
     setBusy(true)
     try {
-      const hash = await SecureStore.getItemAsync(SECURE.PIN_HASH)
+      const hash =
+        pinHashRef.current !== undefined
+          ? pinHashRef.current
+          : await SecureStore.getItemAsync(SECURE.PIN_HASH)
+      if (hash) pinHashRef.current = hash
       if (!hash) {
         setStatus('error')
         setStatusMsg('No PIN configured')
@@ -73,9 +147,10 @@ export default function UnlockScreen() {
       setStatus('success')
       setStatusMsg('Access granted')
       if (resetTimer.current) clearTimeout(resetTimer.current)
+      // Brief success state then navigate (was 1400ms — felt sluggish).
       resetTimer.current = setTimeout(() => {
         completeUnlock()
-      }, 1400)
+      }, 120)
     } finally {
       setBusy(false)
     }
@@ -88,16 +163,19 @@ export default function UnlockScreen() {
     setLocked(true)
     setStatus('idle')
     setStatusMsg('Authenticating…')
+    // Run after paint so dots/lock state update; no artificial 180ms wait.
     verifyTimer.current = setTimeout(() => {
       void onSubmitPin(pin)
-    }, 180)
+    }, 0)
     return () => {
       if (verifyTimer.current) clearTimeout(verifyTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin])
 
-  const topTitle = useMemo(() => 'Enter PIN', [])
+  const topTitle = useMemo(() => 'Unlock', [])
+
+  const padDisabled = locked || busy || bioPending
 
   return (
     <View style={styles.wrap}>
@@ -107,7 +185,11 @@ export default function UnlockScreen() {
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.pinLabel}>Enter your 4-digit PIN</Text>
+          <Text style={styles.pinLabel}>
+            {bioAvailable
+              ? `Use ${bioLabel}, or enter your 4-digit PIN`
+              : 'Enter your 4-digit PIN'}
+          </Text>
 
           <Animated.View style={[styles.dotsRow, { transform: [{ translateX: shakeX }] }]}>
             {Array.from({ length: 4 }, (_, i) => {
@@ -137,14 +219,26 @@ export default function UnlockScreen() {
           <PinPad
             value={pin}
             maxLength={4}
-            disabled={locked || busy}
+            disabled={padDisabled}
             onChange={(next) => {
-              if (locked || busy) return
+              if (padDisabled) return
               setStatus('idle')
               setStatusMsg('')
               setPin(next)
             }}
           />
+
+          {bioAvailable ? (
+            <Pressable
+              onPress={() => void tryUnlockWithBiometrics()}
+              disabled={bioPending}
+              style={({ pressed }) => [styles.bioLink, bioPending && styles.bioLinkDisabled, pressed && !bioPending && { opacity: 0.75 }]}
+            >
+              <Text style={styles.bioLinkText}>
+                {bioPending ? `${bioLabel}…` : `Use ${bioLabel}`}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>
@@ -240,4 +334,22 @@ const styles = StyleSheet.create({
   },
   statusError: { color: tokens.color.debit },
   statusSuccess: { color: '#3B6D11' },
+  bioLink: {
+    marginTop: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  bioLinkDisabled: {
+    opacity: 0.55,
+  },
+  bioLinkText: {
+    fontFamily: tokens.font.mono,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: tokens.color.border,
+    textDecorationLine: 'underline',
+    textAlign: 'center',
+  },
 })

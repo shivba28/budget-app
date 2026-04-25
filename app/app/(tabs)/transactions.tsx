@@ -105,6 +105,8 @@ const DATE_PRESETS: { key: DatePreset; label: string }[] = [
 export default function TransactionsScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  /** Same as Insights `ScrollView` — space so the last rows clear the custom tab bar + FAB. */
+  const listContentBottomPad = insets.bottom + 76
   const items = useTransactionsStore((s) => s.items)
   const load = useTransactionsStore((s) => s.load)
   const removeTransaction = useTransactionsStore((s) => s.remove)
@@ -286,8 +288,9 @@ export default function TransactionsScreen() {
       f: filters,
       c: [...collapsed].sort().join('|'),
       top: topMonthKey ?? '',
+      pad: listContentBottomPad,
     }),
-    [filters, collapsed, topMonthKey],
+    [filters, collapsed, topMonthKey, listContentBottomPad],
   )
 
   const onTopBack = useCallback(() => {
@@ -493,7 +496,7 @@ export default function TransactionsScreen() {
   )
 
   return (
-    <View style={[styles.screen, { paddingBottom: insets.bottom + 52 }]}>
+    <View style={styles.screen}>
       <View
         style={[
           styles.topbar,
@@ -529,7 +532,7 @@ export default function TransactionsScreen() {
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
             }
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
           />
         </View>
       </View>
@@ -669,7 +672,6 @@ const styles = StyleSheet.create({
     minHeight: 120,
   },
   listContent: {
-    paddingBottom: 8,
     gap: 0,
   },
   card: {

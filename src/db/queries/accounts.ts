@@ -2,7 +2,7 @@ import { eq, ne } from 'drizzle-orm'
 import type { InferSelectModel } from 'drizzle-orm'
 
 import { MANUAL_ENROLLMENT_ID } from '../constants'
-import { db } from '../index'
+import { db } from '../client'
 import { accounts } from '../schema'
 
 export type AccountRow = InferSelectModel<typeof accounts>

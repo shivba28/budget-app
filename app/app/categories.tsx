@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
+  type DimensionValue,
   PanResponder,
   Platform,
   Pressable,
@@ -20,6 +21,7 @@ const CREAM = '#FAFAF5'
 const INK = '#111111'
 const MUTED = '#E8E8E0'
 const YELLOW = '#F5C842'
+const RED = '#FF5E5E'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
 // ── color math ────────────────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ function GradientSlider({
     })
   )
 
-  const pct = `${(Math.max(0, Math.min(1, value)) * 100).toFixed(1)}%`
+  const pct = `${(Math.max(0, Math.min(1, value)) * 100).toFixed(1)}%` as DimensionValue
 
   return (
     <View
@@ -300,7 +302,11 @@ export default function CategoriesScreen() {
   const onCreate = () => {
     const l = label.trim()
     if (!l) return
-    add({ label: l, color: color || null })
+    const ok = add({ label: l, color: color || null })
+    if (!ok) {
+      Alert.alert('Duplicate category', 'A category with this name already exists (names are case-insensitive).')
+      return
+    }
     setLabel('')
     setColor('#F94144')
   }
@@ -324,15 +330,106 @@ export default function CategoriesScreen() {
     if (!editingId) return
     const l = editLabel.trim()
     if (!l) return
-    update(editingId, { label: l, color: editColor || null })
+    const ok = update(editingId, { label: l, color: editColor || null })
+    if (!ok) {
+      Alert.alert('Duplicate category', 'Another category already uses this name (names are case-insensitive).')
+      return
+    }
     setEditingId(null)
   }
 
   const onDelete = (id: string) => {
-    Alert.alert('Delete category', 'Budget rows that reference this label stay as-is.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => { remove(id); setEditingId(null) } },
-    ])
+    const row = items.find((c) => c.id === id)
+    if (!row || row.source !== 'user') return
+    Alert.alert(
+      'Delete category',
+      'Transactions using this category will have no category (unassigned). Budget rows keep this label as text until you edit them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            remove(id)
+            setEditingId(null)
+          },
+        },
+      ],
+    )
+  }
+
+  const userCats = useMemo(() => items.filter((c) => c.source === 'user'), [items])
+  const tellerCats = useMemo(() => items.filter((c) => c.source === 'teller'), [items])
+
+  const renderCategoryItem = (item: (typeof items)[number]) => {
+    if (editingId === item.id) {
+      return (
+        <View key={item.id} style={ss.rowEditWrap}>
+          <View style={ss.editCard}>
+            <Text style={ss.fieldLabel}>Name</Text>
+            <TextInput
+              style={ss.fieldInput}
+              value={editLabel}
+              onChangeText={setEditLabel}
+              autoCorrect={false}
+            />
+            <Text style={ss.fieldLabel}>Color</Text>
+            <InlineColorPicker
+              value={editColor}
+              onChange={setEditColor}
+              prefix={`edit-${item.id}`}
+            />
+            <View style={ss.editBtnRow}>
+              <Pressable onPress={onSaveEdit} disabled={!isEditDirty} style={{ flex: 1 }}>
+                {({ pressed }) => (
+                  <View style={[ss.btn, ss.btnYellow, !isEditDirty && ss.btnDisabled, pressed && isEditDirty && ss.btnPressed]} pointerEvents="none">
+                    <Text style={ss.btnText}>Save</Text>
+                  </View>
+                )}
+              </Pressable>
+              {item.source === 'user' ? (
+                <Pressable onPress={() => onDelete(item.id)} style={{ flex: 1 }}>
+                  {({ pressed }) => (
+                    <View style={[ss.btn, ss.btnRed, pressed && ss.btnPressed]} pointerEvents="none">
+                      <Text style={ss.btnText}>Delete</Text>
+                    </View>
+                  )}
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => setEditingId(null)} style={{ flex: 1 }}>
+                {({ pressed }) => (
+                  <View style={[ss.btn, ss.btnNeutral, pressed && ss.btnPressed]} pointerEvents="none">
+                    <Text style={ss.btnText}>Cancel</Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )
+    }
+    const rowColor = item.color ?? MUTED
+    return (
+      <Pressable key={item.id} onPress={() => startEdit(item.id)}>
+        {({ pressed }) => (
+          <View
+            style={[
+              ss.rowCard,
+              { borderLeftColor: rowColor, borderLeftWidth: 6 },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <View style={ss.rowLeft}>
+              <View style={[ss.rowSwatch, { backgroundColor: rowColor }]} />
+              <Text style={ss.rowCat} numberOfLines={1}>
+                {item.label}
+              </Text>
+            </View>
+            <Text style={ss.rowEdit}>Edit</Text>
+          </View>
+        )}
+      </Pressable>
+    )
   }
 
   return (
@@ -347,6 +444,7 @@ export default function CategoriesScreen() {
       </View>
 
       <ScrollView
+        style={ss.scrollFill}
         contentContainerStyle={[ss.scroll, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -372,68 +470,24 @@ export default function CategoriesScreen() {
           </Pressable>
         </View>
 
-        {/* Category list */}
-        <Text style={ss.sectionLabel}>All</Text>
+        {/* Category list (rows + left accent, same as Budgets › Rows) */}
         {items.length === 0 ? (
           <Text style={ss.empty}>No categories yet.</Text>
         ) : (
-          items.map((item) => {
-            if (editingId === item.id) {
-              return (
-                <View key={item.id} style={ss.editCard}>
-                  <Text style={ss.fieldLabel}>Name</Text>
-                  <TextInput
-                    style={ss.fieldInput}
-                    value={editLabel}
-                    onChangeText={setEditLabel}
-                    autoCorrect={false}
-                  />
-                  <Text style={ss.fieldLabel}>Color</Text>
-                  <InlineColorPicker
-                    value={editColor}
-                    onChange={setEditColor}
-                    prefix={`edit-${item.id}`}
-                  />
-                  <View style={ss.editBtnRow}>
-                    <Pressable onPress={onSaveEdit} disabled={!isEditDirty} style={{ flex: 1 }}>
-                      {({ pressed }) => (
-                        <View style={[ss.btn, ss.btnYellow, !isEditDirty && ss.btnDisabled, pressed && isEditDirty && ss.btnPressed]} pointerEvents="none">
-                          <Text style={ss.btnText}>Save</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                    <Pressable onPress={() => onDelete(item.id)} style={{ flex: 1 }}>
-                      {({ pressed }) => (
-                        <View style={[ss.btn, ss.btnRed, pressed && ss.btnPressed]} pointerEvents="none">
-                          <Text style={ss.btnText}>Delete</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                    <Pressable onPress={() => setEditingId(null)} style={{ flex: 1 }}>
-                      {({ pressed }) => (
-                        <View style={[ss.btn, ss.btnNeutral, pressed && ss.btnPressed]} pointerEvents="none">
-                          <Text style={ss.btnText}>Cancel</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                  </View>
-                </View>
-              )
-            }
-
-            const bg = item.color ?? MUTED
-            return (
-              <Pressable key={item.id} onPress={() => startEdit(item.id)}>
-                {({ pressed }) => (
-                  <View style={[ss.catBadge, { backgroundColor: bg }, pressed && { opacity: 0.85 }]}>
-                    <View style={[ss.catSwatch, { backgroundColor: bg }]} />
-                    <Text style={ss.catLabel} numberOfLines={1}>{item.label}</Text>
-                    <Text style={ss.catEdit}>Edit</Text>
-                  </View>
-                )}
-              </Pressable>
-            )
-          })
+          <>
+            {userCats.length > 0 ? (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={ss.groupLabel}>Your categories</Text>
+                {userCats.map((item) => renderCategoryItem(item))}
+              </View>
+            ) : null}
+            {tellerCats.length > 0 ? (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={ss.groupLabel}>Bank categories</Text>
+                {tellerCats.map((item) => renderCategoryItem(item))}
+              </View>
+            ) : null}
+          </>
         )}
       </ScrollView>
     </View>
@@ -442,24 +496,25 @@ export default function CategoriesScreen() {
 
 const ss = StyleSheet.create({
   screen: { flex: 1, backgroundColor: CREAM },
+  scrollFill: { flex: 1, backgroundColor: CREAM },
   topbar: {
     backgroundColor: INK,
     paddingHorizontal: 14,
-    paddingBottom: 8,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   backChev: {
     fontFamily: MONO,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '900',
     color: CREAM,
-    lineHeight: 24,
+    lineHeight: 28,
   },
   topbarTitle: {
     fontFamily: MONO,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: CREAM,
     letterSpacing: 0.6,
@@ -469,18 +524,18 @@ const ss = StyleSheet.create({
   },
   topbarSub: {
     fontFamily: MONO,
-    fontSize: 12,
+    fontSize: 13,
     color: '#888888',
     flexShrink: 0,
     marginLeft: 'auto',
   },
-  scroll: { padding: 12 },
+  scroll: { padding: 12, flexGrow: 1, backgroundColor: CREAM },
   card: {
     borderWidth: 3,
     borderColor: INK,
     backgroundColor: CREAM,
-    padding: 12,
-    marginBottom: 10,
+    padding: 14,
+    marginBottom: 12,
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
@@ -491,53 +546,59 @@ const ss = StyleSheet.create({
     borderWidth: 3,
     borderColor: INK,
     backgroundColor: MUTED,
-    padding: 12,
-    marginBottom: 6,
+    padding: 14,
+    marginBottom: 0,
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 0,
     elevation: 3,
   },
+  rowEditWrap: {
+    width: '100%',
+    marginBottom: 8,
+  },
   fieldLabel: {
     fontFamily: MONO,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: INK,
-    marginBottom: 4,
+    marginBottom: 6,
     marginTop: 6,
   },
   fieldInput: {
     borderWidth: 2,
     borderColor: INK,
     backgroundColor: CREAM,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     fontFamily: MONO,
-    fontSize: 14,
+    fontSize: 16,
     color: INK,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   btn: {
     borderWidth: 3,
     borderColor: INK,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 0,
     elevation: 3,
+    marginBottom: 2,
   },
   btnYellow:  { backgroundColor: YELLOW },
-  btnRed:     { backgroundColor: '#FF5E5E' },
+  btnRed:     { backgroundColor: RED },
   btnNeutral: { backgroundColor: CREAM },
   btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
+  btnDisabled: { opacity: 0.4 },
   btnText: {
     fontFamily: MONO,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: INK,
     textTransform: 'uppercase',
@@ -546,58 +607,60 @@ const ss = StyleSheet.create({
   editBtnRow: {
     flexDirection: 'row',
     gap: 6,
-    marginTop: 4,
+    marginTop: 6,
   },
-  sectionLabel: {
+  groupLabel: {
     fontFamily: MONO,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
+    color: '#555555',
     textTransform: 'uppercase',
-    color: INK,
+    letterSpacing: 0.8,
     marginBottom: 6,
   },
-  empty: {
-    fontFamily: MONO,
-    fontSize: 13,
-    color: '#666666',
-    paddingVertical: 12,
-  },
-  catBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  rowCard: {
     borderWidth: 3,
     borderColor: INK,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    marginBottom: 5,
+    backgroundColor: CREAM,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
     shadowColor: INK,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 0,
     elevation: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  catSwatch: {
-    width: 12,
-    height: 12,
+  rowLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowSwatch: {
+    width: 14,
+    height: 14,
     borderWidth: 2,
     borderColor: INK,
     flexShrink: 0,
   },
-  catLabel: {
+  rowCat: {
     fontFamily: MONO,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: INK,
     flex: 1,
   },
-  catEdit: {
+  rowEdit: {
     fontFamily: MONO,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
     color: INK,
-    opacity: 0.6,
+    opacity: 0.5,
     textTransform: 'uppercase',
+  },
+  empty: {
+    fontFamily: MONO,
+    fontSize: 15,
+    color: '#666666',
+    paddingVertical: 12,
   },
 })

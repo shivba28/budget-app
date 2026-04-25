@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 
-import { db } from '../index'
+import { db } from '../client'
 import { app_meta } from '../schema'
 
 export function getMeta(key: string): string | undefined {

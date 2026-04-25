@@ -4,6 +4,7 @@ import { META_BUDGET_TOTAL_CAP } from '@/src/db/constants'
 import type { BudgetRow } from '@/src/db/queries/budgets'
 import * as q from '@/src/db/queries/budgets'
 import * as meta from '@/src/db/queries/appMeta'
+import { runBudgetAlertCheck } from '@/src/lib/notifications'
 
 type State = {
   items: BudgetRow[]
@@ -49,19 +50,22 @@ export const useBudgetsStore = create<State>((set, get) => ({
   },
   add: (input) => {
     const month = input.month ?? get().month
-    q.insertBudget({
+    q.upsertBudgetForMonth({
       category: input.category,
       amount: input.amount,
       month,
     })
     get().load()
+    void runBudgetAlertCheck('budget_change')
   },
   update: (id, patch) => {
     q.updateBudget(id, patch)
     get().load()
+    void runBudgetAlertCheck('budget_change')
   },
   remove: (id) => {
     q.deleteBudget(id)
     get().load()
+    void runBudgetAlertCheck('budget_change')
   },
 }))

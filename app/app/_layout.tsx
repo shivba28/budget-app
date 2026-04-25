@@ -15,6 +15,7 @@ export default function AppStackLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="categories" />
       <Stack.Screen name="budgets" />
+      <Stack.Screen name="alerts" />
       <Stack.Screen name="manual-accounts" />
       <Stack.Screen name="bank-accounts" />
       <Stack.Screen name="transaction-new" />

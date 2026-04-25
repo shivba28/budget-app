@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -9,11 +10,23 @@ const INK = '#111111'
 const MUTED = '#E8E8E0'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
 
-const links: { href: '/app/categories' | '/app/budgets' | '/app/manual-accounts' | '/app/bank-accounts'; label: string; icon: string }[] = [
-  { href: '/app/categories',    label: 'Categories',            icon: '🏷' },
-  { href: '/app/budgets',       label: 'Budgets',               icon: '📊' },
-  { href: '/app/manual-accounts', label: 'Manual accounts',     icon: '✍️' },
-  { href: '/app/bank-accounts', label: 'Bank accounts (Teller)', icon: '🏦' },
+type SettingsLink = {
+  href:
+    | '/app/categories'
+    | '/app/budgets'
+    | '/app/manual-accounts'
+    | '/app/bank-accounts'
+    | '/app/alerts'
+  label: string
+  icon: keyof typeof Ionicons.glyphMap
+}
+
+const links: SettingsLink[] = [
+  { href: '/app/categories', label: 'Categories', icon: 'pricetag-outline' },
+  { href: '/app/budgets', label: 'Budgets', icon: 'bar-chart-outline' },
+  { href: '/app/alerts', label: 'Budget alerts', icon: 'notifications-outline' },
+  { href: '/app/manual-accounts', label: 'Manual accounts', icon: 'create-outline' },
+  { href: '/app/bank-accounts', label: 'Bank accounts (Teller)', icon: 'business-outline' },
 ]
 
 export default function SettingsScreen() {
@@ -63,7 +76,9 @@ export default function SettingsScreen() {
             >
               <View style={[styles.linkRow, i === 0 && styles.linkRowFirst]}>
                 <View style={styles.linkLeft}>
-                  <Text style={styles.linkIcon}>{l.icon}</Text>
+                  <View style={styles.linkIconWrap}>
+                    <Ionicons name={l.icon} size={20} color={INK} />
+                  </View>
                   <Text style={styles.linkLabel}>{l.label}</Text>
                 </View>
                 <Text style={styles.linkChev}>›</Text>
@@ -81,7 +96,7 @@ export default function SettingsScreen() {
           <Pressable onPress={onSignOut}>
             {({ pressed }) => (
               <View style={[styles.btn, pressed && styles.btnPressed]} pointerEvents="none">
-                <Text style={styles.btnText}>Remove PIN &amp; lock again</Text>
+                <Text style={styles.btnText}>Remove PIN & lock again</Text>
               </View>
             )}
           </Pressable>
@@ -166,10 +181,11 @@ const styles = StyleSheet.create({
     gap: 8,
     flex: 1,
   },
-  linkIcon: {
-    fontSize: 16,
-    width: 22,
-    textAlign: 'center',
+  linkIconWrap: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   linkLabel: {
     fontFamily: MONO,

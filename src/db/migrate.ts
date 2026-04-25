@@ -109,5 +109,23 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
   } catch {
     /* column already exists */
   }
+  // One budget row per (month, category); remove legacy duplicates (keep highest id).
+  try {
+    await db.execAsync(`
+      DELETE FROM budgets WHERE EXISTS (
+        SELECT 1 FROM budgets AS b2
+        WHERE b2.month = budgets.month AND b2.category = budgets.category AND b2.id > budgets.id
+      )
+    `)
+  } catch {
+    /* ignore if budgets missing or sqlite quirk */
+  }
+  try {
+    await db.execAsync(
+      'CREATE UNIQUE INDEX IF NOT EXISTS budgets_month_category ON budgets(month, category)',
+    )
+  } catch {
+    /* ignore if index exists or table empty */
+  }
 }
 

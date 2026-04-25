@@ -692,8 +692,11 @@ export default function Insights() {
               {data.recurring.patterns.length === 0 ? (
                 <Text style={styles.text}>No recurring patterns yet.</Text>
               ) : (
-                data.recurring.patterns.slice(0, 8).map((r) => (
-                  <View key={`${r.merchantKey}-${r.lastDate}`} style={styles.lineRow}>
+                data.recurring.patterns.slice(0, 8).map((r, i) => (
+                  <View
+                    key={`${r.merchantKey}-${r.lastDate}-${Math.round(r.typicalAmount * 100)}-${r.monthsActive}-${i}`}
+                    style={styles.lineRow}
+                  >
                     <Text style={styles.lineLeft} numberOfLines={1}>
                       {r.displayName}
                     </Text>

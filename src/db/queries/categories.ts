@@ -1,13 +1,24 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { InferSelectModel } from 'drizzle-orm'
 
-import { db } from '../index'
+import { db } from '../client'
 import { categories } from '../schema'
 
 export type CategoryRow = InferSelectModel<typeof categories>
 
 export function listCategories(): CategoryRow[] {
   return db.select().from(categories).all()
+}
+
+/** Case-insensitive + trim match against existing category labels (user or bank). */
+export function findCategoryByLabelCaseInsensitive(label: string): CategoryRow | undefined {
+  const t = label.trim()
+  if (!t) return undefined
+  return db
+    .select()
+    .from(categories)
+    .where(sql`lower(trim(${categories.label})) = lower(${t})`)
+    .get()
 }
 
 export function getCategory(id: string): CategoryRow | undefined {
@@ -40,9 +51,9 @@ function hashLabelId(label: string): string {
 /** Idempotent: ensure a category row exists for a Teller label. */
 export function ensureTellerCategoryLabel(label: string): void {
   const t = label.trim() || 'Other'
+  if (findCategoryByLabelCaseInsensitive(t)) return
   const id = `cat_tl_${hashLabelId(t)}`
-  const existing = getCategory(id)
-  if (existing) return
+  if (getCategory(id)) return
   insertCategory({ id, label: t, color: null, source: 'teller' })
 }
 

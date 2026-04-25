@@ -16,6 +16,7 @@ import {
 import * as enrollmentStore from '@/src/lib/teller/enrollmentStore'
 import { TellerHttpError } from '@/src/lib/teller/client'
 import { parseTellerTransaction } from '@/src/lib/teller/txMap'
+import { runBudgetAlertCheck } from '@/src/lib/notifications'
 
 type InsertTx = typeof transactions.$inferInsert
 
@@ -295,6 +296,7 @@ export async function syncTellerAllAccounts(): Promise<void> {
   const enrollments = tellerEq.listTellerEnrollments()
   if (enrollments.length === 0) {
     meta.setMeta(META_LAST_TELLER_SYNC_AT, new Date().toISOString())
+    await runBudgetAlertCheck('sync').catch(() => {})
     return
   }
 
@@ -354,6 +356,7 @@ export async function syncTellerAllAccounts(): Promise<void> {
   }
 
   meta.setMeta(META_LAST_TELLER_SYNC_AT, new Date().toISOString())
+  await runBudgetAlertCheck('sync').catch(() => {})
 }
 
 /** Fetch accounts + transactions from Teller for one enrollment (token from SecureStore). */
@@ -380,6 +383,7 @@ export async function syncTellerForEnrollment(enrollmentId: string): Promise<voi
       last_sync_at: now,
       last_error: null,
     })
+    await runBudgetAlertCheck('sync').catch(() => {})
   } catch (err) {
     const existing = tellerEq
       .listTellerEnrollments()

@@ -1,7 +1,7 @@
-import { count, desc, eq } from 'drizzle-orm'
+import { count, desc, eq, sql } from 'drizzle-orm'
 import type { InferSelectModel } from 'drizzle-orm'
 
-import { db } from '../index'
+import { db } from '../client'
 import { transactions } from '../schema'
 
 export type TransactionRow = InferSelectModel<typeof transactions>
@@ -43,6 +43,16 @@ export function clearTripIdForTrip(tripId: number): void {
     .update(transactions)
     .set({ trip_id: null })
     .where(eq(transactions.trip_id, tripId))
+    .run()
+}
+
+/** Set category to null for transactions whose category matches label (trim, case-insensitive). */
+export function clearTransactionsCategoryMatchingLabel(label: string): void {
+  const t = label.trim()
+  if (!t) return
+  db.update(transactions)
+    .set({ category: null })
+    .where(sql`lower(trim(coalesce(${transactions.category}, ''))) = lower(${t})`)
     .run()
 }
 

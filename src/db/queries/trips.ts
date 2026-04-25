@@ -1,7 +1,7 @@
 import { desc, eq } from 'drizzle-orm'
 import type { InferSelectModel } from 'drizzle-orm'
 
-import { db } from '../index'
+import { db } from '../client'
 import { trips } from '../schema'
 
 export type TripRow = InferSelectModel<typeof trips>
