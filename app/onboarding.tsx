@@ -628,8 +628,8 @@ export default function OnboardingScreen() {
                   />
                   <FeatCard
                     icon={<Ionicons name="airplane-outline" size={14} color={INK} />}
-                    title="Trip Budgets"
-                    body="Envelopes per adventure."
+                    title="Trip &amp; Event Budgets"
+                    body="Envelopes per adventure or occasion."
                   />
                 </View>
                 <OnboardingTripProgress active={active} />

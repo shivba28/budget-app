@@ -5,6 +5,12 @@ export const META_PHASE2_SEEDED = 'phase2_seeded'
 export const META_BUDGET_TOTAL_CAP = 'budget_monthly_total'
 export const META_LAST_TELLER_SYNC_AT = 'last_teller_sync_at'
 
+// ── Background sync ──────────────────────────────────────────────────────────
+/** ISO timestamp of last successful background sync. */
+export const META_LAST_BG_SYNC_AT = 'last_bg_sync_at'
+/** Number of new transactions added by the most recent background sync. */
+export const META_LAST_BG_SYNC_NEW_COUNT = 'last_bg_sync_new_count'
+
 // ── Notifications (Phase 6) ──────────────────────────────────────────────────
 /** Stored JSON: thresholds, quiet hours, per-category toggles. */
 export const META_BUDGET_ALERT_SETTINGS = 'budget_alert_settings'

@@ -137,7 +137,7 @@ export function TabBarWithCenterFab({ currentIndex, onTabPress }: Props) {
     else if (currentIndex === 2) triggerAddTrip()
   }
 
-  const a11yLabel = currentIndex === 0 ? 'Add transaction' : 'Add trip'
+  const a11yLabel = currentIndex === 0 ? 'Add transaction' : 'Add trip or event'
 
   // Build the slot list: 4 tab icons with a centre placeholder when FAB is shown
   const slots = showFab

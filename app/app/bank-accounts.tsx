@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { TellerConnectWebView } from '@/src/components/TellerConnect/TellerConnectWebView'
+import { EmptyState } from '@/src/components/EmptyState'
 import { META_LAST_TELLER_SYNC_AT } from '@/src/db/constants'
 import * as meta from '@/src/db/queries/appMeta'
 import * as accountsQ from '@/src/db/queries/accounts'
@@ -180,7 +181,11 @@ export default function BankAccountsScreen() {
         {/* Enrollments */}
         <Text style={ss.sectionLabel}>Enrollments</Text>
         {enrollments.length === 0 ? (
-          <Text style={ss.empty}>No linked banks yet.</Text>
+          <EmptyState
+            variant="accounts"
+            title="No linked banks yet"
+            subtitle="Tap Connect Bank above to link your first account."
+          />
         ) : (
           enrollments.map((e) => {
             const isDisconnected = e.status === 'disconnected'

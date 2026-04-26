@@ -24,6 +24,11 @@ import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTripsStore } from '@/src/stores/tripsStore'
 import { tokens } from '@/src/theme/tokens'
+import {
+  createManualRecurringTransactions,
+  type ManualRecurrenceCadence,
+} from '@/src/lib/transactions/manualRecurring'
+import { ensureRecurringTransactionsSeeded } from '@/src/lib/transactions/recurringAutoAdd'
 
 export default function TransactionNewScreen() {
   const insets = useSafeAreaInsets()
@@ -35,13 +40,17 @@ export default function TransactionNewScreen() {
   const trips = useTripsStore((s) => s.items)
   const loadTrips = useTripsStore((s) => s.load)
   const add = useTransactionsStore((s) => s.add)
+  const loadTx = useTransactionsStore((s) => s.load)
 
   const [accountId, setAccountId] = useState<string | null>(null)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [amount, setAmount] = useState('')
+  const [amountAbs, setAmountAbs] = useState('')
+  const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [tripId, setTripId] = useState<number | null>(null)
+  const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
+  const [untilDate, setUntilDate] = useState('')
 
   useEffect(() => {
     loadAccounts()
@@ -55,30 +64,54 @@ export default function TransactionNewScreen() {
 
   const canSave = useMemo(() => {
     if (!accountId) return false
-    const a = Number(amount)
+    const a = Number(amountAbs)
     if (Number.isNaN(a) || description.trim() === '') return false
     return true
-  }, [accountId, amount, description])
+  }, [accountId, amountAbs, description])
+
+  const untilDateOrNull = useMemo(() => {
+    if (recurrence === 'none') return null
+    const t = untilDate.trim()
+    if (!t) return null
+    return t
+  }, [recurrence, untilDate])
 
   const onSave = () => {
     if (!accountId || !canSave) return
-    const a = Number(amount)
-    add({
-      account_id: accountId,
-      date,
-      effective_date: null,
-      trip_id: tripId,
-      my_share: null,
-      amount: a,
-      description: description.trim(),
-      category,
-      detail_category: null,
-      pending: 0,
-      user_confirmed: 1,
-      source: 'manual',
-      account_label: null,
-      synced_at: null,
-    })
+    const abs = Number(amountAbs)
+    const a = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
+    if (recurrence === 'none') {
+      add({
+        account_id: accountId,
+        date,
+        effective_date: null,
+        trip_id: tripId,
+        my_share: null,
+        amount: a,
+        description: description.trim(),
+        category,
+        detail_category: null,
+        pending: 0,
+        user_confirmed: 1,
+        source: 'manual',
+        account_label: null,
+        synced_at: null,
+      })
+    } else {
+      createManualRecurringTransactions({
+        accountId,
+        date,
+        amount: a,
+        description: description.trim(),
+        category,
+        tripId,
+        cadence: recurrence,
+        untilDate: untilDateOrNull,
+      })
+      // Seed anything due right away (and rolling fallback if untilDate is blank).
+      ensureRecurringTransactionsSeeded()
+      loadTx()
+    }
     router.back()
   }
 
@@ -119,11 +152,25 @@ export default function TransactionNewScreen() {
             <Text style={styles.blockLabel}>Date</Text>
             <DateInput value={date} onChange={setDate} style={styles.dateInput} />
             <BrutalTextField
-              label="Amount (negative = spend)"
-              value={amount}
-              onChangeText={setAmount}
+              label="Amount"
+              value={amountAbs}
+              onChangeText={setAmountAbs}
               keyboardType="decimal-pad"
             />
+            <View style={styles.chips}>
+              <Pressable
+                onPress={() => setAmountSign('out')}
+                style={({ pressed }) => [styles.chip, amountSign === 'out' && styles.chipOn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.chipText}>Spend (−)</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setAmountSign('in')}
+                style={({ pressed }) => [styles.chip, amountSign === 'in' && styles.chipOn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.chipText}>Income (+)</Text>
+              </Pressable>
+            </View>
             <BrutalTextField
               label="Description"
               value={description}
@@ -147,7 +194,7 @@ export default function TransactionNewScreen() {
                 </Pressable>
               ))}
             </View>
-            <Text style={styles.blockLabel}>Trip (optional)</Text>
+            <Text style={styles.blockLabel}>Trip / event (optional)</Text>
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setTripId(null)}
@@ -165,6 +212,43 @@ export default function TransactionNewScreen() {
                 </Pressable>
               ))}
             </View>
+            <Text style={styles.blockLabel}>Recurring (optional)</Text>
+            <View style={styles.chips}>
+              {(
+                [
+                  ['none', 'None'],
+                  ['daily', 'Daily'],
+                  ['weekly', 'Weekly'],
+                  ['biweekly', 'Bi-weekly'],
+                  ['monthly', 'Monthly'],
+                  ['yearly', 'Yearly'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  onPress={() => {
+                    setRecurrence(key as ManualRecurrenceCadence | 'none')
+                    if (key === 'none') {
+                      setUntilDate('')
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    recurrence === key && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={styles.chipText}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {recurrence !== 'none' ? (
+              <>
+                <Text style={styles.blockLabel}>Repeat until (optional)</Text>
+                <DateInput value={untilDate} onChange={setUntilDate} style={styles.dateInput} placeholder="Until date" />
+              </>
+            ) : null}
             <BrutalButton title="Save" onPress={onSave} disabled={!canSave} />
           </BrutalCard>
         </ScrollView>

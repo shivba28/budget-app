@@ -19,6 +19,12 @@ import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTripsStore } from '@/src/stores/tripsStore'
+import * as recurringQ from '@/src/db/queries/recurringRules'
+import {
+  linkExistingTransactionToNewRecurrence,
+  type ManualRecurrenceCadence,
+} from '@/src/lib/transactions/manualRecurring'
+import { ensureRecurringTransactionsSeeded } from '@/src/lib/transactions/recurringAutoAdd'
 
 const CREAM = '#FAFAF5'
 const INK = '#111111'
@@ -63,10 +69,15 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const [accountId, setAccountId] = useState<string | null>(null)
     const [date, setDate] = useState('')
-    const [amount, setAmount] = useState('')
+    const [amountAbs, setAmountAbs] = useState('')
+    const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
     const [description, setDescription] = useState('')
     const [category, setCategory] = useState<string | null>(null)
     const [tripId, setTripId] = useState<number | null>(null)
+    const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
+    const [untilDate, setUntilDate] = useState('')
+    const [loadedRuleForTx, setLoadedRuleForTx] = useState<string | null>(null)
+    const [loadedUntilDate, setLoadedUntilDate] = useState<string | null>(null)
 
     useEffect(() => {
       loadAccounts()
@@ -78,29 +89,59 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
       if (!tx) return
       setAccountId(tx.account_id)
       setDate(tx.date)
-      setAmount(String(tx.amount))
+      setAmountAbs(String(Math.abs(tx.amount)))
+      setAmountSign(tx.amount < 0 ? 'out' : 'in')
       setDescription(tx.description)
       setCategory(tx.category ?? null)
       setTripId(tx.trip_id ?? null)
+      const rid = (tx as any).recurring_rule_id as string | null | undefined
+      if (rid) {
+        const rule = recurringQ.getRecurringRule(rid)
+        if (rule?.cadence) {
+          setRecurrence(rule.cadence as ManualRecurrenceCadence)
+          setLoadedRuleForTx(rid)
+          setLoadedUntilDate(rule.until_date ?? null)
+          setUntilDate(rule.until_date ?? '')
+        } else {
+          setRecurrence('none')
+          setLoadedRuleForTx(null)
+          setLoadedUntilDate(null)
+          setUntilDate('')
+        }
+      } else {
+        setRecurrence('none')
+        setLoadedRuleForTx(null)
+        setLoadedUntilDate(null)
+        setUntilDate('')
+      }
     }, [tx?.id])
+
+    const untilDateOrNull = useMemo(() => {
+      if (recurrence === 'none') return null
+      const t = untilDate.trim()
+      if (!t) return null
+      return t
+    }, [recurrence, untilDate])
 
     const isDirty = useMemo(() => {
       if (!tx) return false
       return (
         accountId !== tx.account_id ||
         date !== tx.date ||
-        Number(amount) !== tx.amount ||
+        (amountSign === 'out' ? -Math.abs(Number(amountAbs)) : Math.abs(Number(amountAbs))) !== tx.amount ||
         description.trim() !== tx.description ||
         category !== (tx.category ?? null) ||
-        tripId !== (tx.trip_id ?? null)
+        tripId !== (tx.trip_id ?? null) ||
+        recurrence !== (loadedRuleForTx ? (recurringQ.getRecurringRule(loadedRuleForTx)?.cadence as ManualRecurrenceCadence | undefined) : 'none') ||
+        untilDateOrNull !== loadedUntilDate
       )
-    }, [tx, accountId, date, amount, description, category, tripId])
+    }, [tx, accountId, date, amountAbs, amountSign, description, category, tripId, recurrence, untilDateOrNull, loadedRuleForTx, loadedUntilDate])
 
     const canSave = useMemo(() => {
       if (!accountId || !tx || !isDirty) return false
-      const a = Number(amount)
-      return !Number.isNaN(a) && description.trim() !== ''
-    }, [accountId, amount, description, tx, isDirty])
+      const a = Number(amountAbs)
+      return !Number.isNaN(a) && amountAbs.trim() !== '' && description.trim() !== ''
+    }, [accountId, amountAbs, description, tx, isDirty])
 
     const snapPoints = useMemo(() => ['60%', '92%'], [])
 
@@ -118,15 +159,36 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const onSave = () => {
       if (!tx || !canSave) return
+      const abs = Number(amountAbs)
+      const signedAmt = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
       update(tx.id, {
         account_id: accountId!,
         date,
-        amount: Number(amount),
+        amount: signedAmt,
         description: description.trim(),
         category,
         trip_id: tripId,
         source: 'manual',
       })
+
+      if (recurrence !== 'none') {
+        const prevCadence = loadedRuleForTx ? recurringQ.getRecurringRule(loadedRuleForTx)?.cadence : null
+        const prevUntil = loadedRuleForTx ? (recurringQ.getRecurringRule(loadedRuleForTx)?.until_date ?? null) : null
+        if (!loadedRuleForTx || (prevCadence && prevCadence !== recurrence) || prevUntil !== untilDateOrNull) {
+          linkExistingTransactionToNewRecurrence({
+            transactionId: tx.id,
+            accountId: accountId!,
+            date,
+            amount: signedAmt,
+            description: description.trim(),
+            category,
+            tripId,
+            cadence: recurrence,
+            untilDate: untilDateOrNull,
+          })
+          ensureRecurringTransactionsSeeded()
+        }
+      }
       ;(ref as React.RefObject<BottomSheetModal>)?.current?.dismiss()
     }
 
@@ -203,15 +265,31 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
 
             {/* Amount */}
-            <Text style={styles.fieldLabel}>Amount (negative = spend)</Text>
+            <Text style={styles.fieldLabel}>Amount</Text>
             <BottomSheetTextInput
               style={styles.fieldInput}
-              value={amount}
-              onChangeText={setAmount}
+              value={amountAbs}
+              onChangeText={setAmountAbs}
               keyboardType="decimal-pad"
-              placeholder="-0.00"
+              placeholder="0.00"
               placeholderTextColor="#999999"
             />
+            <View style={styles.chips}>
+              <Pressable onPress={() => setAmountSign('out')}>
+                {({ pressed }) => (
+                  <View style={[styles.chip, amountSign === 'out' && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                    <Text style={styles.chipText}>Spend (−)</Text>
+                  </View>
+                )}
+              </Pressable>
+              <Pressable onPress={() => setAmountSign('in')}>
+                {({ pressed }) => (
+                  <View style={[styles.chip, amountSign === 'in' && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                    <Text style={styles.chipText}>Income (+)</Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
 
             {/* Description */}
             <Text style={styles.fieldLabel}>Description</Text>
@@ -253,7 +331,7 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             </View>
 
             {/* Trip */}
-            <Text style={styles.fieldLabel}>Trip (optional)</Text>
+            <Text style={styles.fieldLabel}>Trip / event (optional)</Text>
             <View style={styles.chips}>
               <Pressable onPress={() => setTripId(null)}>
                 {({ pressed }) => (
@@ -272,6 +350,50 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
                 </Pressable>
               ))}
             </View>
+
+            <Text style={styles.fieldLabel}>Recurring (optional)</Text>
+            <View style={styles.chips}>
+              {(
+                [
+                  ['none', 'None'],
+                  ['daily', 'Daily'],
+                  ['weekly', 'Weekly'],
+                  ['biweekly', 'Bi-weekly'],
+                  ['monthly', 'Monthly'],
+                  ['yearly', 'Yearly'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  onPress={() => {
+                    setRecurrence(key as ManualRecurrenceCadence | 'none')
+                    if (key === 'none') {
+                      setUntilDate('')
+                    }
+                  }}
+                >
+                  {({ pressed }) => (
+                    <View
+                      style={[
+                        styles.chip,
+                        recurrence === key && styles.chipOn,
+                        pressed && styles.chipPressed,
+                      ]}
+                      pointerEvents="none"
+                    >
+                      <Text style={styles.chipText}>{label}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              ))}
+            </View>
+
+            {recurrence !== 'none' ? (
+              <>
+                <Text style={styles.fieldLabel}>Repeat until (optional)</Text>
+                <DateInput value={untilDate} onChange={setUntilDate} style={styles.fieldInput} placeholder="Until date" />
+              </>
+            ) : null}
 
             {/* Actions */}
             <View style={styles.btnGroup}>

@@ -5,6 +5,7 @@ const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL,
+    recurring_rule_id TEXT,
     date TEXT NOT NULL,
     effective_date TEXT,
     trip_id INTEGER,
@@ -18,6 +19,23 @@ const MIGRATIONS = [
     source TEXT NOT NULL DEFAULT 'bank',
     account_label TEXT,
     synced_at TEXT
+  );`,
+
+  // recurring_rules (manual recurring templates)
+  `CREATE TABLE IF NOT EXISTS recurring_rules (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    cadence TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    until_ym TEXT,
+    until_date TEXT,
+    last_generated_date TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT,
+    trip_id INTEGER
   );`,
 
   // accounts
@@ -106,6 +124,26 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
   }
   try {
     await db.execAsync('ALTER TABLE teller_enrollments ADD COLUMN last_error TEXT')
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await db.execAsync('ALTER TABLE transactions ADD COLUMN recurring_rule_id TEXT')
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN until_ym TEXT')
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN last_generated_date TEXT')
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN until_date TEXT')
   } catch {
     /* column already exists */
   }

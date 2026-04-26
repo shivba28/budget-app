@@ -19,6 +19,12 @@ import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTripsStore } from '@/src/stores/tripsStore'
+import * as recurringQ from '@/src/db/queries/recurringRules'
+import {
+  linkExistingTransactionToNewRecurrence,
+  type ManualRecurrenceCadence,
+} from '@/src/lib/transactions/manualRecurring'
+import { ensureRecurringTransactionsSeeded } from '@/src/lib/transactions/recurringAutoAdd'
 
 const CREAM = '#FAFAF5'
 const INK = '#111111'
@@ -61,10 +67,15 @@ export default function TransactionEditScreen() {
 
   const [accountId, setAccountId] = useState<string | null>(null)
   const [date, setDate] = useState('')
-  const [amount, setAmount] = useState('')
+  const [amountAbs, setAmountAbs] = useState('')
+  const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [tripId, setTripId] = useState<number | null>(null)
+  const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
+  const [untilDate, setUntilDate] = useState('')
+  const [loadedRuleForTx, setLoadedRuleForTx] = useState<string | null>(null)
+  const [loadedUntilDate, setLoadedUntilDate] = useState<string | null>(null)
 
   useEffect(() => {
     load()
@@ -77,30 +88,81 @@ export default function TransactionEditScreen() {
     if (!tx) return
     setAccountId(tx.account_id)
     setDate(tx.date)
-    setAmount(String(tx.amount))
+    setAmountAbs(String(Math.abs(tx.amount)))
+    setAmountSign(tx.amount < 0 ? 'out' : 'in')
     setDescription(tx.description)
     setCategory(tx.category ?? null)
     setTripId(tx.trip_id ?? null)
+    const rid = (tx as any).recurring_rule_id as string | null | undefined
+    if (rid) {
+      const rule = recurringQ.getRecurringRule(rid)
+      if (rule?.cadence) {
+        setRecurrence(rule.cadence as ManualRecurrenceCadence)
+        setLoadedRuleForTx(rid)
+        setLoadedUntilDate(rule.until_date ?? null)
+        setUntilDate(rule.until_date ?? '')
+      } else {
+        setRecurrence('none')
+        setLoadedRuleForTx(null)
+        setLoadedUntilDate(null)
+        setUntilDate('')
+      }
+    } else {
+      setRecurrence('none')
+      setLoadedRuleForTx(null)
+      setLoadedUntilDate(null)
+      setUntilDate('')
+    }
   }, [tx])
 
   const canSave = useMemo(() => {
     if (!accountId || !tx) return false
-    const a = Number(amount)
+    const a = Number(amountAbs)
     if (Number.isNaN(a) || description.trim() === '') return false
     return true
-  }, [accountId, amount, description, tx])
+  }, [accountId, amountAbs, description, tx])
+
+  const untilDateOrNull = useMemo(() => {
+    if (recurrence === 'none') return null
+    const t = untilDate.trim()
+    if (!t) return null
+    return t
+  }, [recurrence, untilDate])
 
   const onSave = () => {
     if (!id || !tx || !canSave) return
+    const abs = Number(amountAbs)
+    const signedAmt = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
     update(id, {
       account_id: accountId!,
       date,
-      amount: Number(amount),
+      amount: signedAmt,
       description: description.trim(),
       category,
       trip_id: tripId,
       source: 'manual',
     })
+
+    if (recurrence !== 'none') {
+      // If this tx isn't already linked to a rule, or user changed cadence, create a fresh rule and generate future occurrences.
+      const prevCadence = loadedRuleForTx ? recurringQ.getRecurringRule(loadedRuleForTx)?.cadence : null
+      const prevUntil = loadedRuleForTx ? (recurringQ.getRecurringRule(loadedRuleForTx)?.until_date ?? null) : null
+      if (!loadedRuleForTx || (prevCadence && prevCadence !== recurrence) || prevUntil !== untilDateOrNull) {
+        linkExistingTransactionToNewRecurrence({
+          transactionId: id,
+          accountId: accountId!,
+          date,
+          amount: signedAmt,
+          description: description.trim(),
+          category,
+          tripId,
+          cadence: recurrence,
+          untilDate: untilDateOrNull,
+        })
+        ensureRecurringTransactionsSeeded()
+        load()
+      }
+    }
     router.back()
   }
 
@@ -200,15 +262,29 @@ export default function TransactionEditScreen() {
             <Text style={styles.fieldLabel}>Date</Text>
             <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
 
-            <Text style={styles.fieldLabel}>Amount (negative = spend)</Text>
+            <Text style={styles.fieldLabel}>Amount</Text>
             <TextInput
               style={styles.fieldInput}
-              value={amount}
-              onChangeText={setAmount}
+              value={amountAbs}
+              onChangeText={setAmountAbs}
               keyboardType="decimal-pad"
               placeholderTextColor="#999"
-              placeholder="-0.00"
+              placeholder="0.00"
             />
+            <View style={styles.chips}>
+              <Pressable
+                onPress={() => setAmountSign('out')}
+                style={({ pressed }) => [styles.chip, amountSign === 'out' && styles.chipOn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.chipText}>Spend (−)</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setAmountSign('in')}
+                style={({ pressed }) => [styles.chip, amountSign === 'in' && styles.chipOn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.chipText}>Income (+)</Text>
+              </Pressable>
+            </View>
 
             <Text style={styles.fieldLabel}>Description</Text>
             <TextInput
@@ -243,7 +319,7 @@ export default function TransactionEditScreen() {
               ))}
             </View>
 
-            <Text style={styles.sectionLabel}>Trip (optional)</Text>
+            <Text style={styles.sectionLabel}>Trip / event (optional)</Text>
             <View style={styles.chips}>
               <Pressable
                 onPress={() => setTripId(null)}
@@ -261,6 +337,44 @@ export default function TransactionEditScreen() {
                 </Pressable>
               ))}
             </View>
+
+            <Text style={styles.sectionLabel}>Recurring (optional)</Text>
+            <View style={styles.chips}>
+              {(
+                [
+                  ['none', 'None'],
+                  ['daily', 'Daily'],
+                  ['weekly', 'Weekly'],
+                  ['biweekly', 'Bi-weekly'],
+                  ['monthly', 'Monthly'],
+                  ['yearly', 'Yearly'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  onPress={() => {
+                    setRecurrence(key as ManualRecurrenceCadence | 'none')
+                    if (key === 'none') {
+                      setUntilDate('')
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    recurrence === key && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={styles.chipText}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {recurrence !== 'none' ? (
+              <>
+                <Text style={styles.sectionLabel}>Repeat until (optional)</Text>
+                <DateInput value={untilDate} onChange={setUntilDate} style={styles.fieldInput} placeholder="Until date" />
+              </>
+            ) : null}
 
             <View style={styles.btnGroup}>
               <Pressable

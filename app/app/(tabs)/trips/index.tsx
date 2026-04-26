@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import * as txq from '@/src/db/queries/transactions'
+import { EmptyState } from '@/src/components/EmptyState'
 import { TripNewBottomSheet } from '@/src/components/trips/TripNewBottomSheet'
 import { useTripsStore } from '@/src/stores/tripsStore'
 import { useUiSignals } from '@/src/stores/uiSignals'
@@ -96,16 +97,20 @@ export default function TripsListScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
-        <Text style={styles.topbarTitle}>Trips</Text>
+        <Text style={styles.topbarTitle}>Trips &amp; Events</Text>
         <Text style={styles.topbarSub}>Tag spending</Text>
       </View>
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 76 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionLabel}>Your trips</Text>
+        <Text style={styles.sectionLabel}>Your trips &amp; events</Text>
         {items.length === 0 ? (
-          <Text style={styles.empty}>No trips yet — tap + to create one.</Text>
+          <EmptyState
+            variant="trips"
+            title="No trips or events yet"
+            subtitle={"Tap + to create your first trip or event\nand track spending by destination or occasion."}
+          />
         ) : (
           items.map((trip) => {
             const spend = spendByTrip.get(trip.id) ?? 0

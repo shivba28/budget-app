@@ -24,6 +24,7 @@ type AuthState = {
   lockSession: () => void
   touchActivity: () => void
   signOut: () => Promise<void>
+  clearAllData: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -87,6 +88,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     removeMetaSync(LEGACY_GOOGLE_USER_KEY)
     set({
       hasPin: false,
+      isUnlocked: false,
+      lastActivityAt: Date.now(),
+    })
+  },
+
+  clearAllData: async () => {
+    // Unregister background sync task before wiping data
+    const { unregisterBackgroundSync } = await import('../lib/backgroundSync')
+    await unregisterBackgroundSync().catch(() => {})
+
+    // Wipe all SecureStore keys
+    await SecureStore.deleteItemAsync(SECURE.PIN_HASH).catch(() => {})
+
+    // Wipe all SQLite tables (import lazily to avoid circular deps)
+    const { sqlite } = await import('../db/client')
+    sqlite.runSync('DELETE FROM transactions')
+    sqlite.runSync('DELETE FROM accounts')
+    sqlite.runSync('DELETE FROM teller_enrollments')
+    sqlite.runSync('DELETE FROM categories')
+    sqlite.runSync('DELETE FROM trips')
+    sqlite.runSync('DELETE FROM budgets')
+    sqlite.runSync('DELETE FROM app_meta')
+
+    set({
+      hydrated: true,
+      hasPin: false,
+      onboardingComplete: false,
       isUnlocked: false,
       lastActivityAt: Date.now(),
     })

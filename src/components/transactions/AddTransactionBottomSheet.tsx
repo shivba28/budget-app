@@ -19,6 +19,11 @@ import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTripsStore } from '@/src/stores/tripsStore'
+import {
+  createManualRecurringTransactions,
+  type ManualRecurrenceCadence,
+} from '@/src/lib/transactions/manualRecurring'
+import { ensureRecurringTransactionsSeeded } from '@/src/lib/transactions/recurringAutoAdd'
 
 const CREAM = '#FAFAF5'
 const INK = '#111111'
@@ -40,13 +45,17 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
     const trips = useTripsStore((s) => s.items)
     const loadTrips = useTripsStore((s) => s.load)
     const add = useTransactionsStore((s) => s.add)
+    const loadTx = useTransactionsStore((s) => s.load)
 
     const [accountId, setAccountId] = useState<string | null>(null)
     const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-    const [amount, setAmount] = useState('')
+    const [amountAbs, setAmountAbs] = useState('')
+    const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
     const [description, setDescription] = useState('')
     const [category, setCategory] = useState<string | null>(null)
     const [tripId, setTripId] = useState<number | null>(null)
+    const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
+    const [untilDate, setUntilDate] = useState('')
 
     useEffect(() => {
       loadAccounts()
@@ -60,17 +69,27 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const resetForm = () => {
       setDate(new Date().toISOString().slice(0, 10))
-      setAmount('')
+      setAmountAbs('')
+      setAmountSign('out')
       setDescription('')
       setCategory(null)
       setTripId(null)
+      setRecurrence('none')
+      setUntilDate('')
     }
 
     const canSave = useMemo(() => {
       if (!accountId) return false
-      const a = Number(amount)
-      return !Number.isNaN(a) && amount.trim() !== '' && description.trim() !== ''
-    }, [accountId, amount, description])
+      const a = Number(amountAbs)
+      return !Number.isNaN(a) && amountAbs.trim() !== '' && description.trim() !== ''
+    }, [accountId, amountAbs, description])
+
+    const untilDateOrNull = useMemo(() => {
+      if (recurrence === 'none') return null
+      const t = untilDate.trim()
+      if (!t) return null
+      return t
+    }, [recurrence, untilDate])
 
     const snapPoints = useMemo(() => ['60%', '92%'], [])
 
@@ -88,22 +107,39 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const onSave = () => {
       if (!accountId || !canSave) return
-      add({
-        account_id: accountId,
-        date,
-        effective_date: null,
-        trip_id: tripId,
-        my_share: null,
-        amount: Number(amount),
-        description: description.trim(),
-        category,
-        detail_category: null,
-        pending: 0,
-        user_confirmed: 1,
-        source: 'manual',
-        account_label: null,
-        synced_at: null,
-      })
+      const abs = Number(amountAbs)
+      const a = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
+      if (recurrence === 'none') {
+        add({
+          account_id: accountId,
+          date,
+          effective_date: null,
+          trip_id: tripId,
+          my_share: null,
+          amount: a,
+          description: description.trim(),
+          category,
+          detail_category: null,
+          pending: 0,
+          user_confirmed: 1,
+          source: 'manual',
+          account_label: null,
+          synced_at: null,
+        })
+      } else {
+        createManualRecurringTransactions({
+          accountId,
+          date,
+          amount: a,
+          description: description.trim(),
+          category,
+          tripId,
+          cadence: recurrence,
+          untilDate: untilDateOrNull,
+        })
+        ensureRecurringTransactionsSeeded()
+        loadTx()
+      }
       resetForm()
       ;(ref as React.RefObject<BottomSheetModal>)?.current?.dismiss()
     }
@@ -154,15 +190,31 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
           <Text style={styles.fieldLabel}>Date</Text>
           <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
 
-          <Text style={styles.fieldLabel}>Amount (negative = spend)</Text>
+          <Text style={styles.fieldLabel}>Amount</Text>
           <BottomSheetTextInput
             style={styles.fieldInput}
-            value={amount}
-            onChangeText={setAmount}
+            value={amountAbs}
+            onChangeText={setAmountAbs}
             keyboardType="decimal-pad"
-            placeholder="-0.00"
+            placeholder="0.00"
             placeholderTextColor="#999999"
           />
+          <View style={styles.chips}>
+            <Pressable onPress={() => setAmountSign('out')}>
+              {({ pressed }) => (
+                <View style={[styles.chip, amountSign === 'out' && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                  <Text style={styles.chipText}>Spend (−)</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable onPress={() => setAmountSign('in')}>
+              {({ pressed }) => (
+                <View style={[styles.chip, amountSign === 'in' && styles.chipOn, pressed && styles.chipPressed]} pointerEvents="none">
+                  <Text style={styles.chipText}>Income (+)</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
 
           <Text style={styles.fieldLabel}>Description</Text>
           <BottomSheetTextInput
@@ -201,7 +253,7 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             ))}
           </View>
 
-          <Text style={styles.fieldLabel}>Trip (optional)</Text>
+          <Text style={styles.fieldLabel}>Trip / event (optional)</Text>
           <View style={styles.chips}>
             <Pressable onPress={() => setTripId(null)}>
               {({ pressed }) => (
@@ -220,6 +272,50 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
               </Pressable>
             ))}
           </View>
+
+          <Text style={styles.fieldLabel}>Recurring (optional)</Text>
+          <View style={styles.chips}>
+            {(
+              [
+                ['none', 'None'],
+                ['daily', 'Daily'],
+                ['weekly', 'Weekly'],
+                ['biweekly', 'Bi-weekly'],
+                ['monthly', 'Monthly'],
+                ['yearly', 'Yearly'],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable
+                key={key}
+                onPress={() => {
+                  setRecurrence(key as ManualRecurrenceCadence | 'none')
+                  if (key === 'none') {
+                    setUntilDate('')
+                  }
+                }}
+              >
+                {({ pressed }) => (
+                  <View
+                    style={[
+                      styles.chip,
+                      recurrence === key && styles.chipOn,
+                      pressed && styles.chipPressed,
+                    ]}
+                    pointerEvents="none"
+                  >
+                    <Text style={styles.chipText}>{label}</Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </View>
+
+          {recurrence !== 'none' ? (
+            <>
+              <Text style={styles.fieldLabel}>Repeat until (optional)</Text>
+              <DateInput value={untilDate} onChange={setUntilDate} style={styles.fieldInput} placeholder="Until date" />
+            </>
+          ) : null}
 
           <View style={styles.btnGroup}>
             <Pressable onPress={onSave} disabled={!canSave}>

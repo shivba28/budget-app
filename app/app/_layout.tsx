@@ -22,6 +22,7 @@ export default function AppStackLayout() {
       <Stack.Screen name="trip-new" />
       <Stack.Screen name="transaction-edit/[id]" />
       <Stack.Screen name="trip/[tripId]" />
+      <Stack.Screen name="csv-import" />
     </Stack>
   )
 }

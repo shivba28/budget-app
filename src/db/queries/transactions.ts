@@ -64,3 +64,21 @@ export function countForAccount(accountId: string): number {
     .get()
   return Number(row?.c ?? 0)
 }
+
+export function maxDateForRecurringRule(ruleId: string): string | null {
+  const row = db
+    .select({ d: sql<string | null>`max(${transactions.date})` })
+    .from(transactions)
+    .where(eq(transactions.recurring_rule_id, ruleId))
+    .get()
+  return row?.d ?? null
+}
+
+export function hasRecurringTxOnDate(ruleId: string, ymd: string): boolean {
+  const row = db
+    .select({ c: count() })
+    .from(transactions)
+    .where(sql`${transactions.recurring_rule_id} = ${ruleId} AND ${transactions.date} = ${ymd}`)
+    .get()
+  return Number(row?.c ?? 0) > 0
+}

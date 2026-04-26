@@ -21,6 +21,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-router',
     'expo-dev-client',
     '@react-native-community/datetimepicker',
+    'expo-background-task',
     withNoApsEnvironment,
   ] as any,
   ios: {

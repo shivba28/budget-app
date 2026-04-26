@@ -181,7 +181,7 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
             ) : null}
 
             {/* Trip */}
-            <Text style={styles.fieldLabel}>Trip</Text>
+            <Text style={styles.fieldLabel}>Trip / event</Text>
             <View style={styles.chips}>
               <Pressable onPress={() => setTripId(null)}>
                 {({ pressed }) => (

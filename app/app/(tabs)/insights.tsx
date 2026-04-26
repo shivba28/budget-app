@@ -22,6 +22,7 @@ import {
 import { useTabStore } from '@/src/stores/tabStore'
 
 import { DateInput } from '@/src/components/DateInput'
+import { EmptyState } from '@/src/components/EmptyState'
 import * as accountsQ from '@/src/db/queries/accounts'
 import * as budgetsQ from '@/src/db/queries/budgets'
 import * as tripsQ from '@/src/db/queries/trips'
@@ -550,12 +551,11 @@ export default function Insights() {
         </View>
 
         {data.categoryTotalsDesc.length === 0 ? (
-          <View style={styles.box}>
-            <Text style={styles.text}>
-              Nothing to analyze yet. Sync transactions from the Transactions tab after you link
-              a bank.
-            </Text>
-          </View>
+          <EmptyState
+            variant="insights"
+            title="No data yet"
+            subtitle={"Sync transactions from the Transactions tab\nafter linking a bank account."}
+          />
         ) : (
           <>
             <View style={styles.card}>
@@ -604,9 +604,9 @@ export default function Insights() {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.h2}>Trips ({focusKey})</Text>
+              <Text style={styles.h2}>Trips &amp; Events ({focusKey})</Text>
               {tripSpend.length === 0 ? (
-                <Text style={styles.text}>No trip spend in {focusKey}.</Text>
+                <Text style={styles.text}>No trip or event spend in {focusKey}.</Text>
               ) : (
                 tripSpend.map((t) => (
                   <View key={t.tripId} style={styles.lineRow}>

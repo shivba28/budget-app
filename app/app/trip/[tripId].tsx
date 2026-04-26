@@ -94,7 +94,7 @@ export default function TripDetailScreen() {
   }
 
   const onDelete = () => {
-    Alert.alert('Delete trip', 'Transactions linked to this trip will be unlinked.', [
+    Alert.alert('Delete', 'Transactions linked to this will be unlinked.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => { remove(id); router.back() } },
     ])
@@ -106,16 +106,16 @@ export default function TripDetailScreen() {
         <Text style={styles.backChev}>‹</Text>
       </Pressable>
       <Text style={styles.topbarTitle} numberOfLines={1}>{title}</Text>
-      {trip ? <Text style={styles.topbarSub}>Edit trip</Text> : null}
+      {trip ? <Text style={styles.topbarSub}>Edit</Text> : null}
     </View>
   )
 
   if (!Number.isFinite(id) || !trip) {
     return (
       <View style={styles.screen}>
-        {topbar('Trip')}
+        {topbar('Not found')}
         <View style={{ padding: 16 }}>
-          <Text style={{ fontFamily: MONO, color: INK }}>Trip not found.</Text>
+          <Text style={{ fontFamily: MONO, color: INK }}>Not found.</Text>
         </View>
       </View>
     )
@@ -162,7 +162,7 @@ export default function TripDetailScreen() {
             <Pressable onPress={onDelete}>
               {({ pressed }) => (
                 <View style={[styles.btn, styles.btnRed, pressed && styles.btnPressed]} pointerEvents="none">
-                  <Text style={styles.btnText}>Delete trip</Text>
+                  <Text style={styles.btnText}>Delete</Text>
                 </View>
               )}
             </Pressable>
@@ -171,7 +171,7 @@ export default function TripDetailScreen() {
 
         {/* Spend summary */}
         <View style={[styles.card, styles.cardMuted]}>
-          <Text style={styles.sectionLabel}>Trip spend</Text>
+          <Text style={styles.sectionLabel}>Spend</Text>
           <View style={styles.spendRow}>
             <Text style={styles.spendLabel}>Total spent</Text>
             <Text style={styles.spendTotal}>{formatMoney(totalSpent)}</Text>

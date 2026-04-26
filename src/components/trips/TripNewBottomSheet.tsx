@@ -83,8 +83,8 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>New trip</Text>
-          <Text style={styles.fieldLabel}>Trip name</Text>
+          <Text style={styles.title}>New trip / event</Text>
+          <Text style={styles.fieldLabel}>Trip or event name</Text>
           <BottomSheetTextInput
             style={styles.fieldInput}
             value={name}
@@ -114,7 +114,7 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
           <Pressable onPress={onCreate}>
             {({ pressed }) => (
               <View style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]} pointerEvents="none">
-                <Text style={styles.btnText}>Create trip</Text>
+                <Text style={styles.btnText}>Create</Text>
               </View>
             )}
           </Pressable>

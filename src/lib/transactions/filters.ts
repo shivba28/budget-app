@@ -13,6 +13,8 @@ export type TransactionListFilters = {
   customDateRange?: CustomDateRange
   /** `all` | `__none__` (uncategorized) | category label */
   category: string | 'all' | '__none__'
+  /** `all` | specific `accounts.id` */
+  accountId: 'all' | string
   cashFlow: CashFlow
   source: SourceFilter
   /** When false, rows with pending=1 and user_confirmed=0 are hidden. */
@@ -91,6 +93,11 @@ function passesCategory(
   return (tx.category ?? '') === category
 }
 
+function passesAccount(tx: TransactionRow, accountId: 'all' | string): boolean {
+  if (accountId === 'all') return true
+  return tx.account_id === accountId
+}
+
 function passesCashFlow(tx: TransactionRow, flow: CashFlow): boolean {
   if (flow === 'all') return true
   if (flow === 'in') return tx.amount > 0
@@ -112,6 +119,7 @@ export function applyTransactionFilters(
       passesSearch(tx, f.search) &&
       passesDatePreset(tx, f.datePreset, f.customDateRange) &&
       passesCategory(tx, f.category) &&
+      passesAccount(tx, f.accountId) &&
       passesCashFlow(tx, f.cashFlow) &&
       passesSource(tx, f.source),
   )

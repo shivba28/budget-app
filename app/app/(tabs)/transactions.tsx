@@ -25,6 +25,7 @@ import { useUiSignals } from '@/src/stores/uiSignals'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { DateInput } from '@/src/components/DateInput'
+import { EmptyState } from '@/src/components/EmptyState'
 import { AddTransactionBottomSheet } from '@/src/components/transactions/AddTransactionBottomSheet'
 import { AllocationBottomSheet } from '@/src/components/transactions/AllocationBottomSheet'
 import { EditTransactionBottomSheet } from '@/src/components/transactions/EditTransactionBottomSheet'
@@ -47,6 +48,7 @@ import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import * as accountsQ from '@/src/db/queries/accounts'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTabStore } from '@/src/stores/tabStore'
+import { useSyncStore } from '@/src/stores/syncStore'
 
 /** Neobrutalist mock tokens (budget_app_neobrutalist_screens.html) */
 const NEO = {
@@ -185,6 +187,17 @@ export default function TransactionsScreen() {
     [accountRows], // recompute when manual accounts change; bank accounts update on sync which triggers load
   )
 
+  const accountOptions = useMemo(() => {
+    const rows = accountsQ.listAllAccounts()
+    return rows.map((a) => {
+      const isManual = a.enrollment_id === 'manual'
+      const label = isManual
+        ? (a.name ?? 'Manual account')
+        : ([a.institution, a.name].filter(Boolean).join(' · ') || 'Bank account')
+      return { id: a.id, label }
+    })
+  }, [accountRows])
+
   const categoryColorMap = useMemo(
     () => new Map(categoryRows.map((c) => [c.label, c.color])),
     [categoryRows],
@@ -197,6 +210,7 @@ export default function TransactionsScreen() {
     // Default to All dates so prior months (e.g. March) are visible.
     datePreset: 'all',
     category: 'all',
+    accountId: 'all',
     cashFlow: 'all',
     source: 'all',
     includeUnconfirmedPending: true,
@@ -238,6 +252,14 @@ export default function TransactionsScreen() {
     loadAccounts()
     setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
   }, [activeIndex, load, loadCategories, loadAccounts])
+
+  // Reload list when a silent foreground sync completes.
+  const syncStatus = useSyncStore((s) => s.status)
+  useEffect(() => {
+    if (syncStatus !== 'done') return
+    void load()
+    setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
+  }, [syncStatus])
 
   useEffect(() => {
     if (addTransactionSignal <= mountedSignalRef.current) return
@@ -518,6 +540,26 @@ export default function TransactionsScreen() {
               </View>
             </View>
             <View style={styles.filterGroupSpaced}>
+              <Text style={styles.inputLabel}>Account</Text>
+              <View style={styles.chipRow}>
+                <Chip
+                  label="All"
+                  selected={filters.accountId === 'all'}
+                  onPress={() => setFilters((f) => ({ ...f, accountId: 'all' }))}
+                />
+                {accountOptions.map((a) => {
+                  return (
+                    <Chip
+                      key={a.id}
+                      label={a.label}
+                      selected={filters.accountId === a.id}
+                      onPress={() => setFilters((f) => ({ ...f, accountId: a.id }))}
+                    />
+                  )
+                })}
+              </View>
+            </View>
+            <View style={styles.filterGroupSpaced}>
               <Text style={styles.inputLabel}>Category</Text>
               <View style={styles.chipRow}>
                 <Chip
@@ -569,7 +611,7 @@ export default function TransactionsScreen() {
         ) : null}
       </View>
     ),
-    [categoryRows, filters, filtersExpanded],
+    [accountOptions, categoryRows, filters, filtersExpanded],
   )
 
   return (
@@ -617,11 +659,17 @@ export default function TransactionsScreen() {
               extraData={extraData}
               ListHeaderComponent={renderListHeader}
               ListEmptyComponent={
-                <Text style={styles.empty}>
-                  {items.length === 0
-                    ? 'No transactions yet. Add one to get started.'
-                    : 'No transactions match these filters.'}
-                </Text>
+                items.length === 0 ? (
+                  <EmptyState
+                    variant="transactions"
+                    title="No transactions yet"
+                    subtitle="Add one manually or sync a bank account."
+                  />
+                ) : (
+                  <View style={styles.emptyFiltered}>
+                    <Text style={styles.empty}>No transactions match these filters.</Text>
+                  </View>
+                )
               }
               refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -1073,5 +1121,8 @@ const styles = StyleSheet.create({
     color: NEO.ink,
     opacity: 0.65,
     paddingVertical: 16,
+  },
+  emptyFiltered: {
+    paddingHorizontal: 4,
   },
 })

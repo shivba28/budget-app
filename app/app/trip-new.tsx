@@ -38,12 +38,12 @@ export default function TripNewScreen() {
             <Text style={styles.backChev}>‹</Text>
           </View>
         </Pressable>
-        <Text style={styles.topbarTitle}>New trip</Text>
-        <Text style={styles.topbarSub}>Name your getaway</Text>
+        <Text style={styles.topbarTitle}>New trip / event</Text>
+        <Text style={styles.topbarSub}>Name your getaway or occasion</Text>
       </View>
       <View style={[styles.body, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>New trip name</Text>
+          <Text style={styles.fieldLabel}>Trip or event name</Text>
           <TextInput
             style={styles.fieldInput}
             value={name}
@@ -56,7 +56,7 @@ export default function TripNewScreen() {
           <Pressable onPress={onCreate}>
             {({ pressed }) => (
               <View style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]} pointerEvents="none">
-                <Text style={styles.btnText}>Create trip</Text>
+                <Text style={styles.btnText}>Create</Text>
               </View>
             )}
           </Pressable>
