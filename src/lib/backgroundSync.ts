@@ -20,6 +20,7 @@
 import * as Notifications from 'expo-notifications'
 
 import { META_LAST_BG_SYNC_AT, META_LAST_BG_SYNC_NEW_COUNT } from '../db/constants'
+import SyncActivityModule from '../native/SyncActivityModule'
 
 export const BACKGROUND_SYNC_TASK = 'brutal-budget-nightly-sync'
 
@@ -53,6 +54,8 @@ if (native) {
   const { BackgroundTask, TaskManager } = native
 
   TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
+    // 2 units: Teller sync + recurring seed.
+    SyncActivityModule.startSyncActivity(2)
     try {
       const { ensureDbReady } = await import('../db')
       await ensureDbReady()
@@ -64,6 +67,7 @@ if (native) {
 
       const countBefore = listTransactions().length
       await syncTellerAllAccounts()
+      SyncActivityModule.updateSyncActivity(1)
       const countAfter = listTransactions().length
       const newCount = Math.max(0, countAfter - countBefore)
 
@@ -72,11 +76,14 @@ if (native) {
 
       // Also seed any due manual recurring transactions (local-only).
       ensureRecurringTransactionsSeeded()
+      SyncActivityModule.updateSyncActivity(2)
 
       await sendSyncNotification(newCount)
+      SyncActivityModule.endSyncActivity()
 
       return BackgroundTask.BackgroundTaskResult.Success
     } catch {
+      SyncActivityModule.endSyncActivity()
       return BackgroundTask.BackgroundTaskResult.Failed
     }
   })

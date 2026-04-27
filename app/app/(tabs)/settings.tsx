@@ -1,13 +1,9 @@
 import { Ionicons } from '@expo/vector-icons'
-import { File, Paths } from 'expo-file-system'
 import { useRouter } from 'expo-router'
-import Papa from 'papaparse'
-import { useState } from 'react'
-import { Alert, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useAuthStore } from '@/src/auth/authStore'
-import { listTransactions } from '@/src/db/queries/transactions'
 
 const CREAM = '#FAFAF5'
 const INK = '#111111'
@@ -36,44 +32,11 @@ const links: SettingsLink[] = [
 ]
 
 
-async function exportTransactionsCSV(): Promise<void> {
-  const rows = listTransactions()
-
-  const csvData = rows.map((t) => ({
-    id: t.id,
-    date: t.date,
-    effective_date: t.effective_date ?? '',
-    description: t.description,
-    amount: t.amount,
-    category: t.category ?? '',
-    detail_category: t.detail_category ?? '',
-    account_id: t.account_id,
-    account_label: t.account_label ?? '',
-    source: t.source,
-    pending: t.pending === 1 ? 'true' : 'false',
-    trip_id: t.trip_id ?? '',
-    my_share: t.my_share ?? '',
-  }))
-
-  const csv = Papa.unparse(csvData)
-  const fileName = `brutal-budget-${new Date().toISOString().slice(0, 10)}.csv`
-
-  if (Platform.OS === 'ios') {
-    const file = new File(Paths.cache.uri + fileName)
-    file.create({ overwrite: true })
-    file.write(csv)
-    await Share.share({ url: file.uri, title: fileName })
-  } else {
-    await Share.share({ message: csv, title: fileName })
-  }
-}
-
 export default function SettingsScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const signOut = useAuthStore((s) => s.signOut)
   const clearAllData = useAuthStore((s) => s.clearAllData)
-  const [exporting, setExporting] = useState(false)
 
   const onSignOut = () => {
     Alert.alert(
@@ -93,19 +56,6 @@ export default function SettingsScreen() {
         },
       ],
     )
-  }
-
-  const onExportCSV = async () => {
-    if (exporting) return
-    setExporting(true)
-    try {
-      await exportTransactionsCSV()
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Export failed'
-      Alert.alert('Export failed', msg)
-    } finally {
-      setExporting(false)
-    }
   }
 
   const onClearAllData = () => {
@@ -141,13 +91,43 @@ export default function SettingsScreen() {
         {/* Data card */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>Data</Text>
-          {links.map((l, i) => (
+          <Pressable
+            onPress={() => router.push('/app/csv-import')}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+          >
+            <View style={[styles.linkRow, styles.linkRowFirst]}>
+              <View style={styles.linkLeft}>
+                <View style={styles.linkIconWrap}>
+                  <Ionicons name="download-outline" size={20} color={INK} />
+                </View>
+                <Text style={styles.linkLabel}>Import</Text>
+              </View>
+              <Text style={styles.linkChev}>›</Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/app/export')}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+          >
+            <View style={styles.linkRow}>
+              <View style={styles.linkLeft}>
+                <View style={styles.linkIconWrap}>
+                  <Ionicons name="cloud-upload-outline" size={20} color={INK} />
+                </View>
+                <Text style={styles.linkLabel}>Export</Text>
+              </View>
+              <Text style={styles.linkChev}>›</Text>
+            </View>
+          </Pressable>
+
+          {links.map((l) => (
             <Pressable
               key={l.href}
               onPress={() => router.push(l.href)}
               style={({ pressed }) => pressed && { opacity: 0.7 }}
             >
-              <View style={[styles.linkRow, i === 0 && styles.linkRowFirst]}>
+              <View style={styles.linkRow}>
                 <View style={styles.linkLeft}>
                   <View style={styles.linkIconWrap}>
                     <Ionicons name={l.icon} size={20} color={INK} />
@@ -158,40 +138,6 @@ export default function SettingsScreen() {
               </View>
             </Pressable>
           ))}
-        </View>
-
-        {/* Import / Export card */}
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>Import / Export</Text>
-          <Text style={styles.bodyText}>
-            Import transactions from a CSV file or export all transactions as a CSV.
-          </Text>
-          <View style={styles.spacer} />
-          <Pressable onPress={() => router.push('/app/csv-import')}>
-            {({ pressed }) => (
-              <View
-                style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]}
-                pointerEvents="none"
-              >
-                <Ionicons name="cloud-upload-outline" size={16} color={INK} style={{ marginRight: 6 }} />
-                <Text style={styles.btnText}>Import from CSV</Text>
-              </View>
-            )}
-          </Pressable>
-          <View style={styles.spacer} />
-          <Pressable onPress={() => { void onExportCSV() }} disabled={exporting}>
-            {({ pressed }) => (
-              <View
-                style={[styles.btn, styles.btnYellow, pressed && styles.btnPressed]}
-                pointerEvents="none"
-              >
-                <Ionicons name="download-outline" size={16} color={INK} style={{ marginRight: 6 }} />
-                <Text style={styles.btnText}>
-                  {exporting ? 'Exporting...' : 'Export transactions (CSV)'}
-                </Text>
-              </View>
-            )}
-          </Pressable>
         </View>
 
         {/* Security card */}
@@ -304,6 +250,9 @@ const styles = StyleSheet.create({
     borderBottomColor: INK,
   },
   linkRowFirst: {},
+  linkRowLast: {
+    borderBottomWidth: 0,
+  },
   linkLeft: {
     flexDirection: 'row',
     alignItems: 'center',
