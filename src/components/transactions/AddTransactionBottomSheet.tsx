@@ -15,6 +15,8 @@ import {
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { DateInput } from '@/src/components/DateInput'
+import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
+import { evaluateExpression } from '@/src/lib/evaluateExpression'
 import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
@@ -80,8 +82,8 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const canSave = useMemo(() => {
       if (!accountId) return false
-      const a = Number(amountAbs)
-      return !Number.isNaN(a) && amountAbs.trim() !== '' && description.trim() !== ''
+      const a = evaluateExpression(amountAbs)
+      return a !== null && description.trim() !== ''
     }, [accountId, amountAbs, description])
 
     const untilDateOrNull = useMemo(() => {
@@ -107,7 +109,7 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const onSave = () => {
       if (!accountId || !canSave) return
-      const abs = Number(amountAbs)
+      const abs = evaluateExpression(amountAbs) ?? 0
       const a = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
       if (recurrence === 'none') {
         add({
@@ -191,13 +193,11 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
           <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
 
           <Text style={styles.fieldLabel}>Amount</Text>
-          <BottomSheetTextInput
-            style={styles.fieldInput}
+          <CalculatorAmountInput
+            inputStyle={styles.fieldInput}
             value={amountAbs}
             onChangeText={setAmountAbs}
-            keyboardType="decimal-pad"
-            placeholder="0.00"
-            placeholderTextColor="#999999"
+            bottomSheet
           />
           <View style={styles.chips}>
             <Pressable onPress={() => setAmountSign('out')}>

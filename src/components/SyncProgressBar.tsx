@@ -1,11 +1,14 @@
 /**
  * Thin animated progress bar that appears at the very top of the screen
- * while a silent background sync is running. Disappears automatically when
- * done. Non-blocking — the user sees cached data the whole time.
+ * while a silent sync is running. Disappears automatically when done.
+ *
+ * Hidden on iOS when a Live Activity is running in the Dynamic Island —
+ * the Dynamic Island serves as the indicator on supported devices.
+ * On Android and older iPhones this bar is the only indicator.
  */
 
 import { useEffect, useRef } from 'react'
-import { Animated, StyleSheet, View } from 'react-native'
+import { Animated, Platform, StyleSheet, View } from 'react-native'
 
 import { useSyncStore } from '../stores/syncStore'
 
@@ -14,6 +17,7 @@ const YELLOW = '#F5C842'
 
 export function SyncProgressBar() {
   const status = useSyncStore((s) => s.status)
+  const liveActivityActive = useSyncStore((s) => s.liveActivityActive)
   const progress = useRef(new Animated.Value(0)).current
   const opacity = useRef(new Animated.Value(0)).current
 
@@ -39,6 +43,10 @@ export function SyncProgressBar() {
       ]).start(() => progress.setValue(0))
     }
   }, [status])
+
+  // Suppress the bar on iOS when the Dynamic Island is showing the activity.
+  // Must come after all hooks.
+  if (Platform.OS === 'ios' && liveActivityActive) return null
 
   const widthStyle = progress.interpolate({
     inputRange: [0, 1],

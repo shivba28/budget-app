@@ -289,9 +289,9 @@ function CategoryDonut({
           strokeWidth={STROKE_WIDTH}
           color={"transparent"}
         />
-        {slices.map((s) => (
+        {slices.map((s, i) => (
           <DonutSlice
-            key={s.label}
+            key={`${s.label ?? 'uncategorized'}-${i}`}
             label={s.label}
             startAngle={s.startAngle}
             sweepAngle={s.sweepAngle}
@@ -320,8 +320,8 @@ function CategoryLegend({
   if (items.length === 0) return null
   return (
     <View style={styles.legendWrap}>
-      {items.map((it) => (
-        <View key={it.label} style={styles.legendRow}>
+      {items.map((it, i) => (
+        <View key={`${it.label ?? 'uncategorized'}-${i}`} style={styles.legendRow}>
           <View style={[styles.legendSwatch, { backgroundColor: it.color }]} />
           <Text style={styles.legendLabel} numberOfLines={1}>
             {it.label}
@@ -339,7 +339,7 @@ function buildDonutItems(
 ): { label: string; value: number; color: string }[] {
   const MAX_SLICES = 8
   const mapped = rows.map((r) => ({
-    label: r.category,
+    label: r.category ?? 'Uncategorized',
     value: r.totalSpend,
     color: resolveCategoryColor(r.category, categoryRows),
   }))
@@ -354,14 +354,8 @@ function buildDonutItems(
   const otherTotal = mapped.slice(MAX_SLICES).reduce((s, x) => s + x.value, 0)
   const named = [...top].sort(byLabel)
   if (otherTotal > 0) {
-    return [
-      ...named,
-      {
-        label: 'Other',
-        value: otherTotal,
-        color: '#888888',
-      },
-    ]
+    const otherLabel = named.some((x) => x.label === 'Other') ? 'Other (more)' : 'Other'
+    return [...named, { label: otherLabel, value: otherTotal, color: '#888888' }]
   }
   return named
 }

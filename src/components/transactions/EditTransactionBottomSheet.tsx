@@ -15,6 +15,8 @@ import {
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { DateInput } from '@/src/components/DateInput'
+import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
+import { evaluateExpression } from '@/src/lib/evaluateExpression'
 import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
@@ -139,8 +141,8 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const canSave = useMemo(() => {
       if (!accountId || !tx || !isDirty) return false
-      const a = Number(amountAbs)
-      return !Number.isNaN(a) && amountAbs.trim() !== '' && description.trim() !== ''
+      const a = evaluateExpression(amountAbs)
+      return a !== null && description.trim() !== ''
     }, [accountId, amountAbs, description, tx, isDirty])
 
     const snapPoints = useMemo(() => ['60%', '92%'], [])
@@ -159,7 +161,7 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
     const onSave = () => {
       if (!tx || !canSave) return
-      const abs = Number(amountAbs)
+      const abs = evaluateExpression(amountAbs) ?? 0
       const signedAmt = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
       update(tx.id, {
         account_id: accountId!,
@@ -266,13 +268,11 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
 
             {/* Amount */}
             <Text style={styles.fieldLabel}>Amount</Text>
-            <BottomSheetTextInput
-              style={styles.fieldInput}
+            <CalculatorAmountInput
+              inputStyle={styles.fieldInput}
               value={amountAbs}
               onChangeText={setAmountAbs}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-              placeholderTextColor="#999999"
+              bottomSheet
             />
             <View style={styles.chips}>
               <Pressable onPress={() => setAmountSign('out')}>

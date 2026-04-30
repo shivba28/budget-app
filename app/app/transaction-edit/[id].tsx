@@ -14,6 +14,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { DateInput } from '@/src/components/DateInput'
+import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
+import { evaluateExpression } from '@/src/lib/evaluateExpression'
 
 import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
@@ -117,9 +119,8 @@ export default function TransactionEditScreen() {
 
   const canSave = useMemo(() => {
     if (!accountId || !tx) return false
-    const a = Number(amountAbs)
-    if (Number.isNaN(a) || description.trim() === '') return false
-    return true
+    const a = evaluateExpression(amountAbs)
+    return a !== null && description.trim() !== ''
   }, [accountId, amountAbs, description, tx])
 
   const untilDateOrNull = useMemo(() => {
@@ -131,7 +132,7 @@ export default function TransactionEditScreen() {
 
   const onSave = () => {
     if (!id || !tx || !canSave) return
-    const abs = Number(amountAbs)
+    const abs = evaluateExpression(amountAbs) ?? 0
     const signedAmt = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
     update(id, {
       account_id: accountId!,
@@ -263,13 +264,10 @@ export default function TransactionEditScreen() {
             <DateInput value={date} onChange={setDate} style={styles.fieldInput} />
 
             <Text style={styles.fieldLabel}>Amount</Text>
-            <TextInput
-              style={styles.fieldInput}
+            <CalculatorAmountInput
+              inputStyle={styles.fieldInput}
               value={amountAbs}
               onChangeText={setAmountAbs}
-              keyboardType="decimal-pad"
-              placeholderTextColor="#999"
-              placeholder="0.00"
             />
             <View style={styles.chips}>
               <Pressable

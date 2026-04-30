@@ -19,6 +19,8 @@ import {
   BrutalScreen,
   BrutalTextField,
 } from '@/src/components/Brutalist'
+import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
+import { evaluateExpression } from '@/src/lib/evaluateExpression'
 import { useAccountsStore } from '@/src/stores/accountsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
@@ -64,9 +66,8 @@ export default function TransactionNewScreen() {
 
   const canSave = useMemo(() => {
     if (!accountId) return false
-    const a = Number(amountAbs)
-    if (Number.isNaN(a) || description.trim() === '') return false
-    return true
+    const a = evaluateExpression(amountAbs)
+    return a !== null && description.trim() !== ''
   }, [accountId, amountAbs, description])
 
   const untilDateOrNull = useMemo(() => {
@@ -78,7 +79,7 @@ export default function TransactionNewScreen() {
 
   const onSave = () => {
     if (!accountId || !canSave) return
-    const abs = Number(amountAbs)
+    const abs = evaluateExpression(amountAbs) ?? 0
     const a = amountSign === 'out' ? -Math.abs(abs) : Math.abs(abs)
     if (recurrence === 'none') {
       add({
@@ -151,11 +152,12 @@ export default function TransactionNewScreen() {
             </View>
             <Text style={styles.blockLabel}>Date</Text>
             <DateInput value={date} onChange={setDate} style={styles.dateInput} />
-            <BrutalTextField
+            <CalculatorAmountInput
               label="Amount"
               value={amountAbs}
               onChangeText={setAmountAbs}
-              keyboardType="decimal-pad"
+              inputStyle={styles.amountInput}
+              wrapperStyle={styles.amountWrap}
             />
             <View style={styles.chips}>
               <Pressable
@@ -259,6 +261,18 @@ export default function TransactionNewScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  amountWrap: { marginBottom: tokens.space[4] },
+  amountInput: {
+    borderWidth: tokens.border.w3,
+    borderColor: tokens.color.border,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: tokens.space[4],
+    paddingVertical: tokens.space[3],
+    fontSize: 16,
+    fontWeight: '600',
+    color: tokens.color.fg,
+    backgroundColor: tokens.color.card,
+  },
   scroll: { paddingBottom: 0 },
   warn: {
     fontFamily: tokens.font.mono,

@@ -3,12 +3,14 @@ import { Platform } from 'react-native'
 import * as LiveActivity from 'expo-live-activity'
 
 /**
- * JS-facing bridge that matches the requested native module shape.
+ * JS-facing bridge for the sync Live Activity.
+ * Used by both foreground and background sync.
  *
- * Under the hood this uses `expo-live-activity`, which manages the iOS target
- * and ActivityConfiguration via its config plugin.
+ * Returns true from startSyncActivity when a Live Activity was successfully
+ * started (i.e. the device has a Dynamic Island and ActivityKit is available).
+ * Callers can use this to suppress the in-app fallback progress bar.
  */
-let activityId: string | undefined
+let activityId: string | void
 let totalUnits = 0
 
 function clamp01(n: number): number {
@@ -32,22 +34,25 @@ const config: LiveActivity.LiveActivityConfig = {
 }
 
 const SyncActivityModule = {
-  startSyncActivity(total: number) {
-    if (Platform.OS !== 'ios') return
+  /**
+   * Starts a Live Activity for a sync operation.
+   * @returns true if the activity started (Dynamic Island available), false otherwise.
+   */
+  startSyncActivity(total: number): boolean {
+    if (Platform.OS !== 'ios') return false
     totalUnits = Number.isFinite(total) ? total : 0
-    const progress = 0
 
     const state: LiveActivity.LiveActivityState = {
-      title: 'Syncing Transactions...',
-      subtitle: pct(progress),
-      progressBar: { progress: 0 },
-      // If you add an image named `sync` under `assets/liveActivity/`,
-      // the Dynamic Island can show it in the compact leading slot.
-      // imageName: 'sync',
-      // dynamicIslandImageName: 'sync',
+      title: 'Syncing Transactions',
+      subtitle: '0%',
+      // Use a small non-zero value so Swift optional binding doesn't treat it as nil
+      progressBar: { progress: 0.01 },
     }
 
-    activityId = LiveActivity.startActivity(state, config, 1.0)
+    activityId = LiveActivity.startActivity(state, config)
+    const started = activityId != null
+    console.warn(`[SyncActivity] startActivity → ${started ? `id=${activityId}` : 'NOT started (device may not support Live Activities)'}`)
+    return started
   },
 
   updateSyncActivity(progressUnits: number) {
@@ -56,33 +61,35 @@ const SyncActivityModule = {
 
     const p = totalUnits > 0 ? clamp01(progressUnits / totalUnits) : 0
     const state: LiveActivity.LiveActivityState = {
-      title: 'Syncing Transactions...',
+      title: 'Syncing Transactions',
       subtitle: pct(progressUnits),
       progressBar: { progress: p },
-      // imageName: 'sync',
-      // dynamicIslandImageName: 'sync',
     }
 
-    LiveActivity.updateActivity(activityId, state, 1.0)
+    LiveActivity.updateActivity(activityId, state)
   },
 
   endSyncActivity() {
     if (Platform.OS !== 'ios') return
     if (!activityId) return
 
-    const state: LiveActivity.LiveActivityState = {
+    const doneState: LiveActivity.LiveActivityState = {
       title: 'Sync complete',
       subtitle: '100%',
       progressBar: { progress: 1 },
-      // imageName: 'sync',
-      // dynamicIslandImageName: 'sync',
     }
 
-    LiveActivity.stopActivity(activityId, state, 1.0)
+    // Update to 100% immediately so the Dynamic Island shows completion,
+    // then stop after 1.5 s to give the animation time to render.
+    const id = activityId
     activityId = undefined
     totalUnits = 0
+
+    LiveActivity.updateActivity(id, doneState)
+    setTimeout(() => {
+      LiveActivity.stopActivity(id, doneState)
+    }, 1500)
   },
 }
 
 export default SyncActivityModule
-

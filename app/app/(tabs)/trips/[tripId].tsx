@@ -66,8 +66,8 @@ export default function TripDetailScreen() {
   }, [id, items])
 
   const totalSpent = useMemo(() => tripTxns.reduce((sum, t) => {
-    const amt = typeof t.my_share === 'number' && t.my_share > 0
-      ? t.my_share
+    const amt = typeof t.my_share === 'number' && t.my_share !== 0
+      ? Math.abs(t.my_share)
       : t.amount < 0 ? Math.abs(t.amount) : 0
     return sum + amt
   }, 0), [tripTxns])

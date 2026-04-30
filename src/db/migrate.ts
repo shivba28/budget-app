@@ -165,5 +165,15 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
   } catch {
     /* ignore if index exists or table empty */
   }
+  try {
+    await db.execAsync('ALTER TABLE accounts ADD COLUMN balance_available REAL')
+  } catch {
+    /* column already exists */
+  }
+  try {
+    await db.execAsync('ALTER TABLE accounts ADD COLUMN balance_ledger REAL')
+  } catch {
+    /* column already exists */
+  }
 }
 

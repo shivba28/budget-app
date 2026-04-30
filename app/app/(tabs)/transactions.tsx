@@ -1,4 +1,4 @@
-import { FlashList } from '@shopify/flash-list'
+import { FlashList, FlashListRef } from '@shopify/flash-list'
 import { BottomSheetModal } from '@gorhom/bottom-sheet'
 import {
   useCallback,
@@ -13,13 +13,14 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
   Modal,
 } from 'react-native'
-import Svg, { Path } from 'react-native-svg'
+import Svg, { Circle, Path } from 'react-native-svg'
 import { useRouter } from 'expo-router'
 import { useUiSignals } from '@/src/stores/uiSignals'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -50,7 +51,6 @@ import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTabStore } from '@/src/stores/tabStore'
 import { useSyncStore } from '@/src/stores/syncStore'
 
-/** Neobrutalist mock tokens (budget_app_neobrutalist_screens.html) */
 const NEO = {
   cream: '#FAFAF5',
   ink: '#111111',
@@ -60,12 +60,16 @@ const NEO = {
   incomeBorder: '#F5C842',
 } as const
 
-/** Matches HTML `font-family: 'Courier New', monospace` — System mono is lighter on iOS. */
 const NEO_MONO = Platform.select({
   ios: 'Courier New',
   android: 'monospace',
   default: 'monospace',
 })
+
+const ACCOUNT_CARD_COLORS = [
+  '#E63946', '#2A9D8F', '#E76F51', '#6A4C93', '#06D6A0',
+  '#F4A261', '#457B9D', '#E9C46A', '#B5179E', '#4CC9F0',
+]
 
 function formatMonthLabel(ym: string): string {
   const [y, m] = ym.split('-').map(Number)
@@ -97,6 +101,15 @@ function formatTxMoney(amount: number): string {
   })
   const s = fmt.format(Math.abs(amount))
   return amount >= 0 ? `+${s}` : `-${s}`
+}
+
+function formatBalanceMoney(amount: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
 }
 
 const SKELETON_WIDTHS = [
@@ -167,11 +180,45 @@ const DATE_PRESETS: { key: DatePreset; label: string }[] = [
   { key: 'custom', label: 'Custom' },
 ]
 
+type AccountDetail = {
+  id: string
+  name: string
+  institution: string | null | undefined
+  type: string | null | undefined
+  balance: number
+  isManual: boolean
+  isCreditType: boolean
+}
+
+function AccountCard({ account, colorIndex }: { account: AccountDetail; colorIndex: number }) {
+  const color = ACCOUNT_CARD_COLORS[colorIndex % ACCOUNT_CARD_COLORS.length]!
+  const isNegative = account.balance < 0
+  const typeLabel = account.isCreditType ? 'CREDIT' : account.isManual ? 'MANUAL' : 'BANK'
+
+  return (
+    <View style={[styles.accountCard, { backgroundColor: color }]}>
+      <View style={styles.accountCardTypeChip}>
+        <Text style={styles.accountCardTypeText}>{typeLabel}</Text>
+      </View>
+      {account.institution ? (
+        <Text style={styles.accountCardInstitution} numberOfLines={1}>
+          {account.institution}
+        </Text>
+      ) : null}
+      <Text style={styles.accountCardName} numberOfLines={2}>
+        {account.name}
+      </Text>
+      <Text style={[styles.accountCardBalance, isNegative && styles.accountCardBalanceNeg]}>
+        {isNegative ? '-' : '+'}{formatBalanceMoney(Math.abs(account.balance))}
+      </Text>
+    </View>
+  )
+}
+
 export default function TransactionsScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const activeIndex = useTabStore((s) => s.activeIndex)
-  /** Same as Insights `ScrollView` — space so the last rows clear the custom tab bar + FAB. */
   const listContentBottomPad = insets.bottom + 76
   const items = useTransactionsStore((s) => s.items)
   const load = useTransactionsStore((s) => s.load)
@@ -184,7 +231,7 @@ export default function TransactionsScreen() {
   const accountMap = useMemo(
     () => new Map(accountsQ.listAllAccounts().map((a) => [a.id, { name: a.name, institution: a.institution }])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accountRows], // recompute when manual accounts change; bank accounts update on sync which triggers load
+    [accountRows],
   )
 
   const accountOptions = useMemo(() => {
@@ -203,11 +250,65 @@ export default function TransactionsScreen() {
     [categoryRows],
   )
 
+  // All accounts for balance summary (including bank-linked)
+  const allAccountsList = useMemo(
+    () => accountsQ.listAllAccounts(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accountRows],
+  )
+
+  // Per-account manual transaction sums (only needed for manual accounts)
+  const manualAccountSums = useMemo(() => {
+    const sums = new Map<string, number>()
+    for (const tx of items) {
+      // We'll filter per-account in the summary; accumulate all here
+      sums.set(tx.account_id, (sums.get(tx.account_id) ?? 0) + tx.amount)
+    }
+    return sums
+  }, [items])
+
+  // Balance summary: bank accounts use Teller-stored balances, manual use tx sums
+  const balanceSummary = useMemo(() => {
+    let deposits = 0
+    let creditOwed = 0
+    const perAccount: AccountDetail[] = allAccountsList.map((acct) => {
+      const type = acct.type?.toLowerCase() ?? ''
+      const isManual = acct.enrollment_id === 'manual'
+      const isCreditType = type === 'credit' || type === 'charge'
+
+      let balance: number
+      if (isManual) {
+        // Manual: derive from transaction sums
+        balance = manualAccountSums.get(acct.id) ?? 0
+        if (balance > 0) deposits += balance
+        else creditOwed += Math.abs(balance)
+      } else if (isCreditType) {
+        // Credit: use ledger balance (positive = amount owed)
+        balance = acct.balance_ledger ?? 0
+        creditOwed += balance
+      } else {
+        // Depository / other: use available balance
+        balance = acct.balance_available ?? acct.balance_ledger ?? 0
+        deposits += balance
+      }
+
+      return {
+        id: acct.id,
+        name: acct.name ?? 'Account',
+        institution: acct.institution,
+        type: acct.type,
+        balance,
+        isManual,
+        isCreditType,
+      }
+    })
+    return { deposits, creditOwed, net: deposits - creditOwed, perAccount }
+  }, [allAccountsList, manualAccountSums])
+
   const [refreshing, setRefreshing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [filters, setFilters] = useState<TransactionListFilters>({
     search: '',
-    // Default to All dates so prior months (e.g. March) are visible.
     datePreset: 'all',
     category: 'all',
     accountId: 'all',
@@ -219,6 +320,30 @@ export default function TransactionsScreen() {
   const [showCustomDate, setShowCustomDate] = useState(false)
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [accordionOpen, setAccordionOpen] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+
+  const listRef = useRef<FlashListRef<TxListRow>>(null)
+  const searchInputRef = useRef<TextInput>(null)
+  const summaryHeightRef = useRef(180)
+  const showSearchRef = useRef(false)
+  const hasActiveFiltersRef = useRef(false)
+  // Track whether the list content is shorter than the container (can't scroll)
+  const listContainerHeightRef = useRef(0)
+  const listContentHeightRef = useRef(0)
+
+  useEffect(() => {
+    showSearchRef.current = showSearch
+  }, [showSearch])
+
+  useEffect(() => {
+    hasActiveFiltersRef.current =
+      filters.search.trim() !== '' ||
+      filters.datePreset !== 'all' ||
+      filters.category !== 'all' ||
+      filters.accountId !== 'all' ||
+      filters.cashFlow !== 'all'
+  }, [filters])
 
   const addTransactionSignal = useUiSignals((s) => s.addTransactionSignal)
   const addRef = useRef<BottomSheetModal>(null)
@@ -231,7 +356,6 @@ export default function TransactionsScreen() {
     meta.getMeta(META_LAST_TELLER_SYNC_AT),
   )
 
-  // Initial load
   useEffect(() => {
     void (async () => {
       try {
@@ -244,7 +368,6 @@ export default function TransactionsScreen() {
     loadAccounts()
   }, [load, loadCategories, loadAccounts])
 
-  // Reload when this tab becomes active (replaces useFocusEffect)
   useEffect(() => {
     if (activeIndex !== 0) return
     void load()
@@ -253,13 +376,13 @@ export default function TransactionsScreen() {
     setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
   }, [activeIndex, load, loadCategories, loadAccounts])
 
-  // Reload list when a silent foreground sync completes.
   const syncStatus = useSyncStore((s) => s.status)
   useEffect(() => {
     if (syncStatus !== 'done') return
     void load()
+    loadAccounts() // picks up freshly stored Teller balances
     setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-  }, [syncStatus])
+  }, [syncStatus, loadAccounts])
 
   useEffect(() => {
     if (addTransactionSignal <= mountedSignalRef.current) return
@@ -270,11 +393,11 @@ export default function TransactionsScreen() {
     setRefreshing(true)
     void (async () => {
       try {
-        const { syncTellerAllAccounts } = await import('@/src/lib/teller/sync')
-        await syncTellerAllAccounts()
+        const { triggerManualSync } = await import('@/src/lib/foregroundSync')
+        await triggerManualSync()
         setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
       } catch {
-        /* offline, network, or Teller error — list still refreshes */
+        /* offline / network / Teller error */
       } finally {
         void load()
         setRefreshing(false)
@@ -313,7 +436,6 @@ export default function TransactionsScreen() {
       for (const mk of monthKeys) {
         const isNew = prevSet.size === 0 || !prevSet.has(mk)
         if (mk === top) {
-          // Newest month defaults expanded, but user can collapse it.
           if (!isNew && oldCollapsed.has(mk)) next.add(mk)
           continue
         }
@@ -377,6 +499,52 @@ export default function TransactionsScreen() {
     setFilters((f) => ({ ...f, datePreset, customDateRange: undefined }))
   }
 
+  const onSearchIconPress = useCallback(() => {
+    setShowSearch((prev) => {
+      if (prev) return prev // hide only happens by scrolling back to top
+      // Opening: scroll list so search card is visible, then focus
+      setTimeout(() => {
+        listRef.current?.scrollToOffset({ offset: summaryHeightRef.current, animated: true })
+        setTimeout(() => searchInputRef.current?.focus(), 350)
+      }, 30)
+      return true
+    })
+  }, [])
+
+  const maybeShowSearchForShortList = useCallback(() => {
+    // If the content doesn't overflow the container the user can never scroll,
+    // so reveal the search bar immediately.
+    if (
+      !showSearchRef.current &&
+      listContentHeightRef.current > 0 &&
+      listContentHeightRef.current <= listContainerHeightRef.current
+    ) {
+      setShowSearch(true)
+    }
+  }, [])
+
+  const onListLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
+    listContainerHeightRef.current = e.nativeEvent.layout.height
+    maybeShowSearchForShortList()
+  }, [maybeShowSearchForShortList])
+
+  const onListContentSizeChange = useCallback((_w: number, h: number) => {
+    listContentHeightRef.current = h
+    maybeShowSearchForShortList()
+  }, [maybeShowSearchForShortList])
+
+  const onListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const y = e.nativeEvent.contentOffset.y
+    // Show search once user has scrolled ~80% through the summary section
+    if (!showSearchRef.current && y > summaryHeightRef.current * 0.8) {
+      setShowSearch(true)
+    }
+    // Hide search when back near the top, but only if no active filters/search
+    if (showSearchRef.current && y < 30 && !hasActiveFiltersRef.current) {
+      setShowSearch(false)
+    }
+  }, [])
+
   const extraData = useMemo(
     () => ({
       f: filters,
@@ -386,10 +554,6 @@ export default function TransactionsScreen() {
     }),
     [filters, collapsed, topMonthKey, listContentBottomPad],
   )
-
-  const onTopBack = useCallback(() => {
-    if (router.canGoBack()) router.back()
-  }, [router])
 
   const renderItem = useCallback(
     ({ item }: { item: TxListRow }) => {
@@ -462,15 +626,22 @@ export default function TransactionsScreen() {
                 <Text
                   style={[
                     styles.txAmount,
-                    isIncome && styles.txAmountIncome,
-                    tx.amount < 0 && styles.txAmountExpense,
+                    tx.my_share != null
+                      ? styles.txAmountExpense
+                      : isIncome
+                        ? styles.txAmountIncome
+                        : tx.amount < 0
+                          ? styles.txAmountExpense
+                          : undefined,
                   ]}
                 >
-                  {formatTxMoney(tx.amount)}
+                  {tx.my_share != null
+                    ? formatTxMoney(tx.my_share)
+                    : formatTxMoney(tx.amount)}
                 </Text>
-                {tx.source === 'bank' && tx.my_share != null ? (
+                {tx.my_share != null ? (
                   <Text style={styles.txShare}>
-                    share: {formatTxMoney(tx.my_share)}
+                    full: {formatTxMoney(tx.amount)}
                   </Text>
                 ) : null}
               </View>
@@ -480,10 +651,10 @@ export default function TransactionsScreen() {
               {accountLabel ? ` · ${accountLabel}` : ''}
               {tx.category ? ` · ${tx.category}` : ''}
             </Text>
-            {tx.pending === 1 ? 
+            {tx.pending === 1 ?
               <Text style={styles.txMeta}>
                 <Text style={styles.txPendingTag}>{'PENDING'}</Text>
-              </Text> 
+              </Text>
             : null}
           </View>
         </TransactionSwipeRow>
@@ -494,136 +665,217 @@ export default function TransactionsScreen() {
 
   const renderListHeader = useCallback(
     () => (
-      /* HTML: .card > .input-label + .input-field, then Date (no mt), Category/Flow margin-top: 6px */
-      <View style={styles.card} accessibilityRole="none">
-        <Text style={styles.inputLabel}>Search</Text>
-        <View style={styles.searchAccordionRow}>
-          <View style={styles.searchCol}>
-            <TextInput
-              value={filters.search}
-              onChangeText={(search) => setFilters((f) => ({ ...f, search }))}
-              placeholder="Filter by description..."
-              placeholderTextColor="#888888"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.inputField}
-            />
+      <View>
+        {/* ── Balance Summary ──────────────────────────────── */}
+        <View
+          style={styles.summarySection}
+          onLayout={(e) => { summaryHeightRef.current = e.nativeEvent.layout.height }}
+        >
+          {/* Net balance row + search icon */}
+          <View style={styles.summaryHeaderRow}>
+            <View style={styles.summaryNetBlock}>
+              <Text style={styles.summaryNetLabel}>NET BALANCE</Text>
+              <Text style={styles.summaryNetAmount}>
+                {formatBalanceMoney(balanceSummary.net)}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onSearchIconPress}
+              accessibilityRole="button"
+              accessibilityLabel={showSearch ? 'Hide search' : 'Show search'}
+            >
+              {({ pressed }) => (
+                <View style={[styles.searchIconBtn, pressed && { opacity: 0.7 }]}>
+                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                    <Circle cx={11} cy={11} r={7} stroke={NEO.ink} strokeWidth={2.5} />
+                    <Path
+                      d="M16.5 16.5 L21 21"
+                      stroke={NEO.ink}
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                    />
+                  </Svg>
+                </View>
+              )}
+            </Pressable>
           </View>
+
+          {/* Deposits / Credit totals */}
+          <View style={styles.summaryTotalsRow}>
+            <View style={styles.summaryTotalItem}>
+              <Text style={styles.summaryTotalLabel}>DEPOSITS</Text>
+              <Text style={styles.summaryDepositAmt}>
+                +{formatBalanceMoney(balanceSummary.deposits)}
+              </Text>
+            </View>
+            <View style={styles.summaryTotalDivider} />
+            <View style={[styles.summaryTotalItem, { alignItems: 'flex-end' }]}>
+              <Text style={styles.summaryTotalLabel}>CREDIT</Text>
+              <Text style={styles.summaryCreditAmt}>
+                -{formatBalanceMoney(balanceSummary.creditOwed)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Accordion toggle */}
           <Pressable
-            onPress={() => setFiltersExpanded((v) => !v)}
-            style={({ pressed }) => [styles.filtersChevBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => setAccordionOpen((v) => !v)}
             accessibilityRole="button"
-            accessibilityLabel={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
+            accessibilityState={{ expanded: accordionOpen }}
+            accessibilityLabel={accordionOpen ? 'Collapse accounts' : 'Expand accounts'}
           >
-            <Text style={styles.filtersChev}>Advanced {filtersExpanded ? '▼' : '▶'}</Text>
+            {({ pressed }) => (
+              <View style={[styles.accordionToggleBtn, pressed && { opacity: 0.75 }]}>
+                <Text style={styles.accordionToggleText}>
+                  {accordionOpen ? '▲  HIDE ACCOUNTS' : '▼  SHOW ACCOUNTS'}
+                </Text>
+              </View>
+            )}
           </Pressable>
+
+          {/* Account cards horizontal scroll */}
+          {accordionOpen ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.accountCardsScroll}
+              contentContainerStyle={styles.accountCardsContent}
+            >
+              {balanceSummary.perAccount.length === 0 ? (
+                <View style={styles.accountCardsEmpty}>
+                  <Text style={styles.accountCardsEmptyText}>No accounts yet</Text>
+                </View>
+              ) : (
+                balanceSummary.perAccount.map((acct, i) => (
+                  <AccountCard key={acct.id} account={acct} colorIndex={i} />
+                ))
+              )}
+            </ScrollView>
+          ) : null}
         </View>
 
-        {filtersExpanded ? (
-          <>
-            <View style={styles.filterGroup}>
-              <Text style={styles.inputLabel}>Date</Text>
-              <View style={styles.chipRow}>
-                {DATE_PRESETS.map((p) => (
-                  <Chip
-                    key={p.key}
-                    label={p.label}
-                    selected={filters.datePreset === p.key}
-                    onPress={() => setPreset(p.key)}
-                  />
-                ))}
-                {filters.datePreset === 'custom' && filters.customDateRange ? (
-                  <Text style={styles.customRangeNote}>
-                    {filters.customDateRange.start} → {filters.customDateRange.end}
-                  </Text>
-                ) : null}
-              </View>
+        {/* ── Search / Filter Card (hidden until triggered) ── */}
+        <View style={showSearch ? styles.card : styles.cardHidden} accessibilityRole="none">
+          <Text style={styles.inputLabel}>Search</Text>
+          <View style={styles.searchAccordionRow}>
+            <View style={styles.searchCol}>
+              <TextInput
+                ref={searchInputRef}
+                value={filters.search}
+                onChangeText={(search) => setFilters((f) => ({ ...f, search }))}
+                placeholder="Filter by description..."
+                placeholderTextColor="#888888"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.inputField}
+              />
             </View>
-            <View style={styles.filterGroupSpaced}>
-              <Text style={styles.inputLabel}>Account</Text>
-              <View style={styles.chipRow}>
-                <Chip
-                  label="All"
-                  selected={filters.accountId === 'all'}
-                  onPress={() => setFilters((f) => ({ ...f, accountId: 'all' }))}
-                />
-                {accountOptions.map((a) => {
-                  return (
+            <Pressable
+              onPress={() => setFiltersExpanded((v) => !v)}
+              style={({ pressed }) => [styles.filtersChevBtn, pressed && { opacity: 0.8 }]}
+              accessibilityRole="button"
+              accessibilityLabel={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
+            >
+              <Text style={styles.filtersChev}>Advanced {filtersExpanded ? '▼' : '▶'}</Text>
+            </Pressable>
+          </View>
+
+          {filtersExpanded ? (
+            <>
+              <View style={styles.filterGroup}>
+                <Text style={styles.inputLabel}>Date</Text>
+                <View style={styles.chipRow}>
+                  {DATE_PRESETS.map((p) => (
+                    <Chip
+                      key={p.key}
+                      label={p.label}
+                      selected={filters.datePreset === p.key}
+                      onPress={() => setPreset(p.key)}
+                    />
+                  ))}
+                  {filters.datePreset === 'custom' && filters.customDateRange ? (
+                    <Text style={styles.customRangeNote}>
+                      {filters.customDateRange.start} → {filters.customDateRange.end}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.filterGroupSpaced}>
+                <Text style={styles.inputLabel}>Account</Text>
+                <View style={styles.chipRow}>
+                  <Chip
+                    label="All"
+                    selected={filters.accountId === 'all'}
+                    onPress={() => setFilters((f) => ({ ...f, accountId: 'all' }))}
+                  />
+                  {accountOptions.map((a) => (
                     <Chip
                       key={a.id}
                       label={a.label}
                       selected={filters.accountId === a.id}
                       onPress={() => setFilters((f) => ({ ...f, accountId: a.id }))}
                     />
-                  )
-                })}
+                  ))}
+                </View>
               </View>
-            </View>
-            <View style={styles.filterGroupSpaced}>
-              <Text style={styles.inputLabel}>Category</Text>
-              <View style={styles.chipRow}>
-                <Chip
-                  label="All"
-                  selected={filters.category === 'all'}
-                  onPress={() => setFilters((f) => ({ ...f, category: 'all' }))}
-                />
-                <Chip
-                  label="None"
-                  selected={filters.category === '__none__'}
-                  onPress={() =>
-                    setFilters((f) => ({ ...f, category: '__none__' }))
-                  }
-                />
-                {categoryRows.map((c) => (
+              <View style={styles.filterGroupSpaced}>
+                <Text style={styles.inputLabel}>Category</Text>
+                <View style={styles.chipRow}>
                   <Chip
-                    key={c.id}
-                    label={c.label}
-                    selected={filters.category === c.label}
-                    onPress={() =>
-                      setFilters((f) => ({ ...f, category: c.label }))
-                    }
+                    label="All"
+                    selected={filters.category === 'all'}
+                    onPress={() => setFilters((f) => ({ ...f, category: 'all' }))}
                   />
-                ))}
-              </View>
-            </View>
-            <View style={styles.filterGroupSpaced}>
-              <Text style={styles.inputLabel}>Flow</Text>
-              <View style={styles.chipRow}>
-                {(
-                  [
-                    ['all', 'All'],
-                    ['in', 'In'],
-                    ['out', 'Out'],
-                  ] as const
-                ).map(([key, label]) => (
                   <Chip
-                    key={key}
-                    label={label}
-                    selected={filters.cashFlow === key}
-                    onPress={() =>
-                      setFilters((f) => ({ ...f, cashFlow: key }))
-                    }
+                    label="None"
+                    selected={filters.category === '__none__'}
+                    onPress={() => setFilters((f) => ({ ...f, category: '__none__' }))}
                   />
-                ))}
+                  {categoryRows.map((c) => (
+                    <Chip
+                      key={c.id}
+                      label={c.label}
+                      selected={filters.category === c.label}
+                      onPress={() => setFilters((f) => ({ ...f, category: c.label }))}
+                    />
+                  ))}
+                </View>
               </View>
-            </View>
-          </>
-        ) : null}
+              <View style={styles.filterGroupSpaced}>
+                <Text style={styles.inputLabel}>Flow</Text>
+                <View style={styles.chipRow}>
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['in', 'In'],
+                      ['out', 'Out'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Chip
+                      key={key}
+                      label={label}
+                      selected={filters.cashFlow === key}
+                      onPress={() => setFilters((f) => ({ ...f, cashFlow: key }))}
+                    />
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : null}
+        </View>
       </View>
     ),
-    [accountOptions, categoryRows, filters, filtersExpanded],
+    [
+      accountOptions, accordionOpen, balanceSummary, categoryRows,
+      filters, filtersExpanded, onSearchIconPress, showSearch,
+    ],
   )
 
   return (
     <View style={styles.screen}>
-      <View
-        style={[
-          styles.topbar,
-          { paddingTop: insets.top + 10 },
-        ]}
-      >
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.topbarTitle} numberOfLines={1}>
-          Transactions
+          Home
         </Text>
         <Text style={styles.topbarSub} numberOfLines={1}>
           Last sync: {formatLastSyncShort(lastSync)}
@@ -650,6 +902,7 @@ export default function TransactionsScreen() {
             />
           ) : (
             <FlashList
+              ref={listRef}
               data={rows}
               renderItem={renderItem}
               keyExtractor={(item) => item.id}
@@ -675,6 +928,10 @@ export default function TransactionsScreen() {
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               }
               contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
+              onScroll={onListScroll}
+              scrollEventThrottle={16}
+              onLayout={onListLayout}
+              onContentSizeChange={onListContentSizeChange}
             />
           )}
         </View>
@@ -738,10 +995,7 @@ function Chip({
   onPress: () => void
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={styles.chipPressable}
-    >
+    <Pressable onPress={onPress} style={styles.chipPressable}>
       {({ pressed }) => (
         <View
           style={[
@@ -766,7 +1020,6 @@ const styles = StyleSheet.create({
     backgroundColor: NEO.cream,
   },
   topbar: {
-    /* .topbar — padding: 10px 14px 8px (top added to safe area) */
     backgroundColor: NEO.ink,
     paddingHorizontal: 14,
     paddingBottom: 8,
@@ -774,39 +1027,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  topbarBack: {
-    width: 22,
-    height: 22,
-    borderWidth: 2,
-    borderColor: NEO.cream,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   topbarTitle: {
-    /* .topbar-title — RN: 800 reads closer to mock than System mono at 700 */
     fontFamily: NEO_MONO,
     fontSize: 18,
     fontWeight: Platform.OS === 'ios' ? '800' : '700',
     color: NEO.cream,
-    letterSpacing: 0.6, // ~0.05em × 12px
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
     flexShrink: 1,
     minWidth: 0,
   },
   topbarSub: {
-    /* .topbar-sub — margin-left: auto in HTML */
     fontFamily: NEO_MONO,
     fontSize: 12,
     color: NEO.sub,
-    letterSpacing: 0.36, // ~0.04em × 9px
+    letterSpacing: 0.36,
     flexShrink: 0,
     marginLeft: 'auto',
     maxWidth: '46%',
   },
   body: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingTop: 14,
     paddingBottom: 4,
     gap: 10,
   },
@@ -817,32 +1058,228 @@ const styles = StyleSheet.create({
   listContent: {
     gap: 0,
   },
+
+  // ── Balance Summary Section ──────────────────────────
+  summarySection: {
+    backgroundColor: '#000000',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 6,
+    marginBottom: 10,
+  },
+  summaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  summaryNetBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  summaryNetLabel: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#888888',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  summaryNetAmount: {
+    fontFamily: NEO_MONO,
+    fontSize: 30,
+    fontWeight: Platform.OS === 'ios' ? '800' : '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+  searchIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: NEO.yellow,
+    borderWidth: 3,
+    borderColor: NEO.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+  summaryTotalsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  summaryTotalItem: {
+    flex: 1,
+  },
+  summaryTotalLabel: {
+    fontFamily: NEO_MONO,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#666666',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  summaryDepositAmt: {
+    fontFamily: NEO_MONO,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#4ADE80',
+    letterSpacing: 0.3,
+  },
+  summaryTotalDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#333333',
+    marginHorizontal: 12,
+  },
+  summaryCreditAmt: {
+    fontFamily: NEO_MONO,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#F87171',
+    letterSpacing: 0.3,
+  },
+  accordionToggleBtn: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: NEO.cream,
+    backgroundColor: NEO.ink,
+    marginBottom: 4,
+    shadowColor: NEO.cream,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+  accordionToggleText: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '800',
+    color: NEO.cream,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  accountCardsScroll: {
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  accountCardsContent: {
+    paddingHorizontal: 0,
+    gap: 10,
+    paddingBottom: 8,
+  },
+  accountCardsEmpty: {
+    width: 160,
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderStyle: 'dashed',
+  },
+  accountCardsEmptyText: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    color: '#555555',
+  },
+
+  // ── Account Card ─────────────────────────────────────
+  accountCard: {
+    width: 168,
+    borderRadius: 12,
+    padding: 14,
+    justifyContent: 'space-between',
+    minHeight: 104,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  accountCardTypeChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 6,
+  },
+  accountCardTypeText: {
+    fontFamily: NEO_MONO,
+    fontSize: 9,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.85)',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  accountCardInstitution: {
+    fontFamily: NEO_MONO,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.65)',
+    marginBottom: 1,
+  },
+  accountCardName: {
+    fontFamily: NEO_MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffffff',
+    flex: 1,
+    marginBottom: 8,
+  },
+  accountCardBalance: {
+    fontFamily: NEO_MONO,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 0.3,
+  },
+  accountCardBalanceNeg: {
+    color: '#FFD0D0',
+  },
+
+  // ── Search / Filter ───────────────────────────────────
   card: {
-    /* .card + --shadow-sm: 3px 3px 0 #111 */
     borderWidth: 3,
     borderColor: NEO.ink,
     backgroundColor: NEO.cream,
     borderRadius: 0,
     padding: 10,
     marginBottom: 10,
+    marginHorizontal: 12,
     shadowColor: NEO.ink,
     shadowOffset: { width: 3, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 0,
     elevation: 3,
   },
+  cardHidden: {
+    height: 0,
+    overflow: 'hidden',
+    marginHorizontal: 12,
+  },
   inputLabel: {
-    /* .input-label */
     fontFamily: NEO_MONO,
     fontSize: 15,
     fontWeight: '800',
-    letterSpacing: 0.9, // 0.1em × 9px
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
     color: NEO.ink,
     marginBottom: 2,
   },
   inputField: {
-    /* .input-field */
     borderWidth: 2,
     borderColor: NEO.ink,
     backgroundColor: NEO.cream,
@@ -854,15 +1291,11 @@ const styles = StyleSheet.create({
     color: '#444444',
     marginBottom: 6,
   },
-  filterGroup: {
-    /* Date block: no margin-top after search (HTML) */
-  },
+  filterGroup: {},
   filterGroupSpaced: {
-    /* Category / Flow: margin-top: 6px */
     marginTop: 6,
   },
   chipRow: {
-    /* chip container: inline chips with margin: 2px */
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'flex-start',
@@ -871,7 +1304,6 @@ const styles = StyleSheet.create({
     borderRadius: 0,
   },
   chip: {
-    /* .chip */
     borderWidth: 2,
     borderColor: NEO.ink,
     borderRadius: 0,
@@ -882,7 +1314,6 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   chipOn: {
-    /* .chip-on */
     backgroundColor: NEO.yellow,
   },
   chipPressed: {
@@ -933,6 +1364,8 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     marginTop: 4,
   },
+
+  // ── Modal ─────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -962,13 +1395,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 4,
   },
-  modalHint: {
-    fontFamily: NEO_MONO,
-    fontSize: 10,
-    color: NEO.ink,
-    opacity: 0.7,
-    marginBottom: 8,
-  },
   modalRow: {
     flexDirection: 'row',
     gap: 8,
@@ -996,6 +1422,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 7,
   },
+
+  // ── Month accordion ───────────────────────────────────
   monthAccordionRow: {
     display: 'flex',
     flexWrap: 'nowrap',
@@ -1006,6 +1434,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 4,
     paddingVertical: 4,
+    paddingHorizontal: 12,
     width: '100%',
   },
   monthAccordionPressable: {
@@ -1023,7 +1452,6 @@ const styles = StyleSheet.create({
     width: '45%',
   },
   monthSectionLabel: {
-    /* .section-label — month accordion title */
     fontFamily: NEO_MONO,
     fontSize: 18,
     fontWeight: '800',
@@ -1054,8 +1482,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     width: '45%',
   },
+
+  // ── Transaction rows ──────────────────────────────────
   txRow: {
-    /* .tx-row */
     borderWidth: 2,
     borderColor: NEO.ink,
     backgroundColor: NEO.cream,
@@ -1063,6 +1492,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 8,
     marginBottom: 10,
+    marginHorizontal: 12,
   },
   txRowTop: {
     flexDirection: 'row',
@@ -1121,6 +1551,7 @@ const styles = StyleSheet.create({
     color: NEO.ink,
     opacity: 0.65,
     paddingVertical: 16,
+    paddingHorizontal: 12,
   },
   emptyFiltered: {
     paddingHorizontal: 4,

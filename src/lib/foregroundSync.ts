@@ -3,13 +3,17 @@
  * to the foreground and the last sync is older than STALE_MS.
  *
  * Call startForegroundSync() once after the DB and auth are ready (in
- * RootLayout). Call stopForegroundSync() on unmount (cleanup only; in
- * practice the root layout lives for the app's lifetime).
+ * RootLayout). Call stopForegroundSync() on unmount.
+ *
+ * triggerManualSync() can be called directly from pull-to-refresh or
+ * manual sync buttons — it runs the same path so the Live Activity / Dynamic
+ * Island fires for those syncs too.
  */
 
 import { AppState, type AppStateStatus } from 'react-native'
 
 import { META_LAST_TELLER_SYNC_AT } from '../db/constants'
+import SyncActivityModule from '../native/SyncActivityModule'
 import { useSyncStore } from '../stores/syncStore'
 
 /** Sync if data is older than this threshold. */
@@ -30,19 +34,28 @@ function isStale(): boolean {
 let _listener: ReturnType<typeof AppState.addEventListener> | null = null
 let _syncing = false
 
-async function runSilentSync(): Promise<void> {
+export async function triggerManualSync(): Promise<void> {
   if (_syncing) return
   _syncing = true
 
-  const { setSyncing, setSyncDone, setSyncError } = useSyncStore.getState()
+  const { setSyncing, setSyncDone, setSyncError, setLiveActivityActive } =
+    useSyncStore.getState()
+
   setSyncing()
+
+  const liveActivityStarted = SyncActivityModule.startSyncActivity(1)
+  setLiveActivityActive(liveActivityStarted)
 
   try {
     const { syncTellerAllAccounts } = await import('./teller/sync')
     await syncTellerAllAccounts()
     const lastAt = getLastSyncAt() ?? new Date().toISOString()
+    SyncActivityModule.endSyncActivity()
+    setLiveActivityActive(false)
     setSyncDone(lastAt)
   } catch (err) {
+    SyncActivityModule.endSyncActivity()
+    setLiveActivityActive(false)
     setSyncError(err instanceof Error ? err.message : 'Sync failed')
   } finally {
     _syncing = false
@@ -52,13 +65,19 @@ async function runSilentSync(): Promise<void> {
 export function startForegroundSync(): void {
   if (_listener) return
 
+  // Sync immediately on startup if data is stale — this is the most
+  // reliable way to trigger the Live Activity on fresh app open.
+  if (isStale()) {
+    void triggerManualSync()
+  }
+
   let prevState: AppStateStatus = AppState.currentState
 
   _listener = AppState.addEventListener('change', (nextState) => {
     const comingToForeground = prevState !== 'active' && nextState === 'active'
     prevState = nextState
     if (comingToForeground && isStale()) {
-      void runSilentSync()
+      void triggerManualSync()
     }
   })
 }

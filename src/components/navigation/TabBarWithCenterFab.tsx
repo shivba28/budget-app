@@ -26,7 +26,7 @@ const FAB_SIZE = 70
 const BAR_HEIGHT = 50
 
 const TAB_ICONS: Array<keyof typeof Ionicons.glyphMap> = [
-  'list',
+  'home',
   'pie-chart',
   'airplane',
   'settings',

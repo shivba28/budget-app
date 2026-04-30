@@ -55,6 +55,8 @@ export const accounts = sqliteTable('accounts', {
     .notNull()
     .default(0),
   include_in_insights: integer('include_in_insights').notNull().default(1),
+  balance_available: real('balance_available'),
+  balance_ledger: real('balance_ledger'),
 })
 
 export const teller_enrollments = sqliteTable('teller_enrollments', {

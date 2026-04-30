@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
 import { useRouter } from 'expo-router'
 import Papa from 'papaparse'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   KeyboardAvoidingView,
@@ -21,6 +21,11 @@ import * as categoriesQ from '@/src/db/queries/categories'
 import * as tripsQ from '@/src/db/queries/trips'
 import * as txq from '@/src/db/queries/transactions'
 import { DateInput } from '@/src/components/DateInput'
+import {
+  evaluateExpression,
+  formatExpressionResult,
+  isArithmeticExpression,
+} from '@/src/lib/evaluateExpression'
 import {
   createManualRecurringTransactions,
   type ManualRecurrenceCadence,
@@ -281,9 +286,20 @@ function ReviewCard({
   const borderColor = skipped ? '#CCCCCC' : saved ? YELLOW : INK
   const cardBg = skipped ? MUTED : CREAM
 
-  const amtText = row.current.amount !== 0
-    ? (row.current.amount > 0 ? '+' : '') + row.current.amount.toFixed(2)
-    : '0.00'
+  const [amountExpr, setAmountExpr] = useState(() =>
+    row.current.amount !== 0 ? String(row.current.amount) : ''
+  )
+
+  // Sync when the row is reset back to its original state
+  useEffect(() => {
+    if (row.status === 'pending') {
+      setAmountExpr(row.current.amount !== 0 ? String(row.current.amount) : '')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.status])
+
+  const amountEvaluated = evaluateExpression(amountExpr)
+  const showAmountPreview = isArithmeticExpression(amountExpr) && amountEvaluated !== null
 
   return (
     <View style={[cardS.card, { borderColor, backgroundColor: cardBg }]}>
@@ -323,16 +339,29 @@ function ReviewCard({
             <Text style={cardS.fieldLabel}>Amount</Text>
             <TextInput
               style={[cardS.input, skipped && cardS.inputDisabled]}
-              value={String(row.current.amount)}
+              value={amountExpr}
               onChangeText={(v) => {
-                const n = parseFloat(v)
-                if (!isNaN(n)) onChange('amount', n)
+                setAmountExpr(v)
+                const n = evaluateExpression(v)
+                if (n !== null) onChange('amount', n)
               }}
-              keyboardType="numbers-and-punctuation"
+              onBlur={() => {
+                if (amountEvaluated !== null && isArithmeticExpression(amountExpr)) {
+                  const s = formatExpressionResult(amountEvaluated)
+                  setAmountExpr(s)
+                  onChange('amount', amountEvaluated)
+                }
+              }}
+              keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
               placeholder="-45.00"
               placeholderTextColor="#999"
               editable={!skipped}
             />
+            {showAmountPreview ? (
+              <View style={cardS.calcPreview}>
+                <Text style={cardS.calcPreviewText}>= {formatExpressionResult(amountEvaluated!)}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -565,6 +594,21 @@ const cardS = StyleSheet.create({
     color: INK,
   },
   inputDisabled: { backgroundColor: MUTED, color: '#888888' },
+  calcPreview: {
+    marginTop: 3,
+    alignSelf: 'flex-start',
+    backgroundColor: YELLOW,
+    borderWidth: 2,
+    borderColor: INK,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  calcPreviewText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    fontWeight: '800',
+    color: INK,
+  },
   chip: {
     borderWidth: 2,
     borderColor: INK,

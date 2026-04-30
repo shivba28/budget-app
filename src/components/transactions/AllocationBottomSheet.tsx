@@ -3,7 +3,6 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
-  BottomSheetTextInput,
 } from '@gorhom/bottom-sheet'
 import {
   forwardRef,
@@ -13,6 +12,9 @@ import {
   useState,
 } from 'react'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+
+import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
+import { evaluateExpression } from '@/src/lib/evaluateExpression'
 
 import { DateInput } from '@/src/components/DateInput'
 import type { TransactionRow } from '@/src/db/queries/transactions'
@@ -76,7 +78,7 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
       if (!tx) return
       setDeferDate(tx.effective_date ?? '')
       setTripId(tx.trip_id ?? null)
-      setMyShare(tx.my_share != null ? String(tx.my_share) : '')
+      setMyShare(tx.my_share != null ? String(Math.abs(tx.my_share)) : '')
       setCategory(tx.category ?? null)
     }, [tx?.id])
 
@@ -85,7 +87,7 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
       return (
         deferDate.trim() !== (tx.effective_date ?? '') ||
         tripId !== (tx.trip_id ?? null) ||
-        myShare.trim() !== (tx.my_share != null ? String(tx.my_share) : '') ||
+        myShare.trim() !== (tx.my_share != null ? String(Math.abs(tx.my_share)) : '') ||
         category !== (tx.category ?? null)
       )
     }, [tx, deferDate, tripId, myShare, category])
@@ -107,11 +109,12 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
     const saveAllocation = () => {
       if (!tx) return
       const shareRaw = myShare.trim()
-      const share = shareRaw === '' ? null : Number(shareRaw)
+      const shareEval = shareRaw === '' ? null : (evaluateExpression(shareRaw) ?? null)
+      const share = shareEval !== null ? -Math.abs(shareEval) : null
       update(tx.id, {
         effective_date: deferDate.trim() === '' ? null : deferDate.trim(),
         trip_id: tripId,
-        my_share: share !== null && !Number.isNaN(share) ? share : null,
+        my_share: share,
         category,
         detail_category: null,
       } as Partial<TransactionRow>)
@@ -202,13 +205,12 @@ export const AllocationBottomSheet = forwardRef<BottomSheetModal, Props>(
             </View>
             {/* My share */}
             <Text style={styles.fieldLabel}>My share (optional)</Text>
-            <BottomSheetTextInput
-              style={styles.fieldInput}
+            <CalculatorAmountInput
+              inputStyle={styles.fieldInput}
               value={myShare}
               onChangeText={setMyShare}
-              keyboardType="decimal-pad"
-              placeholder="Split / share amount"
-              placeholderTextColor="#999999"
+              placeholder="e.g. 25.00"
+              bottomSheet
             />
 
             {/* Category override */}

@@ -98,6 +98,21 @@ export async function fetchAccountsRaw(accessToken: string): Promise<unknown[]> 
   return unwrapAccountList(data)
 }
 
+export async function fetchAccountBalance(
+  accountId: string,
+  accessToken: string,
+): Promise<{ available: number | null; ledger: number | null }> {
+  const data = await tellerGetJson(`/accounts/${encodeURIComponent(accountId)}/balances`, accessToken)
+  if (!data || typeof data !== 'object') return { available: null, ledger: null }
+  const r = data as Record<string, unknown>
+  const parse = (v: unknown): number | null => {
+    if (typeof v === 'number') return v
+    if (typeof v === 'string') { const n = parseFloat(v); return isNaN(n) ? null : n }
+    return null
+  }
+  return { available: parse(r.available), ledger: parse(r.ledger) }
+}
+
 export async function fetchTransactionsPage(
   accountId: string,
   accessToken: string,

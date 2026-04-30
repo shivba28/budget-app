@@ -27,7 +27,6 @@ import {
 import * as enrollmentStore from '@/src/lib/teller/enrollmentStore'
 import {
   disconnectTellerEnrollment,
-  syncTellerAllAccounts,
   syncTellerForEnrollment,
 } from '@/src/lib/teller/sync'
 import { useTellerEnrollmentsStore } from '@/src/stores/tellerEnrollmentsStore'
@@ -81,7 +80,8 @@ export default function BankAccountsScreen() {
   const onSyncAll = async () => {
     setBusy(true)
     try {
-      await syncTellerAllAccounts()
+      const { triggerManualSync } = await import('@/src/lib/foregroundSync')
+      await triggerManualSync()
       txLoad()
       refreshLocal()
     } catch (e) {

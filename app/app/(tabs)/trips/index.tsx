@@ -85,8 +85,8 @@ export default function TripsListScreen() {
     for (const t of txq.listTransactions()) {
       if (t.trip_id == null) continue
       if (t.pending === 1 && t.user_confirmed !== 1) continue
-      const amt = typeof t.my_share === 'number' && t.my_share > 0
-        ? t.my_share
+      const amt = typeof t.my_share === 'number' && t.my_share !== 0
+        ? Math.abs(t.my_share)
         : t.amount < 0 ? Math.abs(t.amount) : 0
       if (amt <= 0) continue
       map.set(t.trip_id, (map.get(t.trip_id) ?? 0) + amt)

@@ -11,6 +11,7 @@ import { sqlite } from '@/src/db/index'
 import { transactions } from '@/src/db/schema'
 import {
   fetchAccountsRaw,
+  fetchAccountBalance,
   fetchTransactionsPage,
 } from '@/src/lib/teller/client'
 import * as enrollmentStore from '@/src/lib/teller/enrollmentStore'
@@ -101,6 +102,21 @@ function maybeFlipDepositoryHistory(account: accountsQ.AccountRow): void {
     account.id,
   )
   accountsQ.updateAccount(account.id, { depository_amounts_inverted: 1 })
+}
+
+async function syncAccountBalance(
+  account: accountsQ.AccountRow,
+  accessToken: string,
+): Promise<void> {
+  try {
+    const { available, ledger } = await fetchAccountBalance(account.id, accessToken)
+    accountsQ.updateAccount(account.id, {
+      balance_available: available ?? undefined,
+      balance_ledger: ledger ?? undefined,
+    })
+  } catch {
+    /* balance fetch is best-effort; don't fail the sync */
+  }
 }
 
 async function syncAccountTransactions(
@@ -335,6 +351,7 @@ export async function syncTellerAllAccounts(): Promise<void> {
     if (!tok) continue
     try {
       await syncAccountTransactions(acc, tok)
+      await syncAccountBalance(acc, tok)
     } catch (err) {
       // Transaction sync failure should also mark the enrollment as needing attention.
       const existing = tellerEq
@@ -371,6 +388,7 @@ export async function syncTellerForEnrollment(enrollmentId: string): Promise<voi
       .filter((a) => a.enrollment_id === enrollmentId)
     for (const acc of linked) {
       await syncAccountTransactions(acc, token)
+      await syncAccountBalance(acc, token)
     }
     const existing = tellerEq
       .listTellerEnrollments()
