@@ -13,6 +13,8 @@
 import { AppState, type AppStateStatus } from 'react-native'
 
 import { META_LAST_TELLER_SYNC_AT } from '../db/constants'
+import * as accountsQ from '../db/queries/accounts'
+import * as tellerEq from '../db/queries/tellerEnrollments'
 import SyncActivityModule from '../native/SyncActivityModule'
 import { useSyncStore } from '../stores/syncStore'
 
@@ -43,12 +45,21 @@ export async function triggerManualSync(): Promise<void> {
 
   setSyncing()
 
-  const liveActivityStarted = SyncActivityModule.startSyncActivity(1)
+  // Compute real total before starting so the progress bar is accurate:
+  // 1 unit per enrollment (account discovery) + 2 units per bank account (transactions + balance)
+  const enrollmentCount = tellerEq.listTellerEnrollments().length
+  const accountCount = accountsQ.listBankLinkedAccounts().length
+  const total = enrollmentCount + accountCount * 2
+
+  const liveActivityStarted = SyncActivityModule.startSyncActivity(total || 1)
   setLiveActivityActive(liveActivityStarted)
 
+  let done = 0
   try {
     const { syncTellerAllAccounts } = await import('./teller/sync')
-    await syncTellerAllAccounts()
+    await syncTellerAllAccounts(() => {
+      SyncActivityModule.updateSyncActivity(++done)
+    })
     const lastAt = getLastSyncAt() ?? new Date().toISOString()
     SyncActivityModule.endSyncActivity()
     setLiveActivityActive(false)

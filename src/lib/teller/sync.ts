@@ -303,7 +303,7 @@ export async function upsertAccountsForEnrollment(
   }
 }
 
-export async function syncTellerAllAccounts(): Promise<void> {
+export async function syncTellerAllAccounts(onProgress?: () => void): Promise<void> {
   const net = await NetInfo.fetch()
   if (!net.isConnected) {
     throw new Error('You are offline. Sync needs a network connection.')
@@ -343,6 +343,7 @@ export async function syncTellerAllAccounts(): Promise<void> {
         last_error: err instanceof Error ? err.message : 'Sync failed',
       })
     }
+    onProgress?.()
   }
 
   const bankAccounts = accountsQ.listBankLinkedAccounts()
@@ -351,7 +352,9 @@ export async function syncTellerAllAccounts(): Promise<void> {
     if (!tok) continue
     try {
       await syncAccountTransactions(acc, tok)
+      onProgress?.()
       await syncAccountBalance(acc, tok)
+      onProgress?.()
     } catch (err) {
       // Transaction sync failure should also mark the enrollment as needing attention.
       const existing = tellerEq
@@ -369,6 +372,9 @@ export async function syncTellerAllAccounts(): Promise<void> {
         last_sync_at: new Date().toISOString(),
         last_error: err instanceof Error ? err.message : 'Sync failed',
       })
+      // Still count both units even on error so the bar keeps moving
+      onProgress?.()
+      onProgress?.()
     }
   }
 

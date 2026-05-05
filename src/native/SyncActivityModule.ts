@@ -12,6 +12,8 @@ import * as LiveActivity from 'expo-live-activity'
  */
 let activityId: string | void
 let totalUnits = 0
+let lastUpdateAt = 0
+const MIN_UPDATE_INTERVAL_MS = 500
 
 function clamp01(n: number): number {
   if (Number.isNaN(n) || !Number.isFinite(n)) return 0
@@ -19,9 +21,9 @@ function clamp01(n: number): number {
 }
 
 function pct(progressUnits: number): string {
-  if (totalUnits <= 0) return '0%'
+  if (totalUnits <= 0) return '0'
   const p = clamp01(progressUnits / totalUnits)
-  return `${Math.round(p * 100)}%`
+  return `${Math.round(p * 100)}`
 }
 
 const config: LiveActivity.LiveActivityConfig = {
@@ -42,11 +44,12 @@ const SyncActivityModule = {
     if (Platform.OS !== 'ios') return false
     totalUnits = Number.isFinite(total) ? total : 0
 
+    // Start without a progress bar so the indicator doesn't show a misleading
+    // "0%". The subtitle keeps the Dynamic Island sync icon visible. Progress
+    // is only shown once updateSyncActivity is called with real data.
     const state: LiveActivity.LiveActivityState = {
       title: 'Syncing Transactions',
-      subtitle: '0%',
-      // Use a small non-zero value so Swift optional binding doesn't treat it as nil
-      progressBar: { progress: 0.01 },
+      subtitle: 'Syncing…',
     }
 
     activityId = LiveActivity.startActivity(state, config)
@@ -60,35 +63,46 @@ const SyncActivityModule = {
     if (!activityId) return
 
     const p = totalUnits > 0 ? clamp01(progressUnits / totalUnits) : 0
+    const now = Date.now()
+
+    // Respect ActivityKit's rate limit (~1 update/sec). Always push the final
+    // 100% update so the bar reaches the end before the activity is stopped.
+    if (p < 1 && now - lastUpdateAt < MIN_UPDATE_INTERVAL_MS) return
+
     const state: LiveActivity.LiveActivityState = {
       title: 'Syncing Transactions',
       subtitle: pct(progressUnits),
       progressBar: { progress: p },
     }
 
-    LiveActivity.updateActivity(activityId, state)
+    try {
+      LiveActivity.updateActivity(activityId, state)
+      lastUpdateAt = now
+    } catch {
+      // Activity was already dismissed — clear our reference so subsequent
+      // calls are no-ops.
+      activityId = undefined
+    }
   },
 
   endSyncActivity() {
     if (Platform.OS !== 'ios') return
     if (!activityId) return
 
-    const doneState: LiveActivity.LiveActivityState = {
-      title: 'Sync complete',
-      subtitle: '100%',
-      progressBar: { progress: 1 },
-    }
-
-    // Update to 100% immediately so the Dynamic Island shows completion,
-    // then stop after 1.5 s to give the animation time to render.
     const id = activityId
     activityId = undefined
     totalUnits = 0
+    lastUpdateAt = 0
 
-    LiveActivity.updateActivity(id, doneState)
-    setTimeout(() => {
-      LiveActivity.stopActivity(id, doneState)
-    }, 1500)
+    try {
+      LiveActivity.stopActivity(id, {
+        title: 'Sync complete',
+        subtitle: '100',
+        progressBar: { progress: 1 },
+      })
+    } catch {
+      // Activity was already dismissed by the user or system — nothing to do.
+    }
   },
 }
 

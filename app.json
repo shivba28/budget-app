@@ -1,12 +1,12 @@
 {
   "expo": {
     "name": "Brutal Budget",
-    "slug": "budget-tracker-rn",
+    "slug": "brutal-budget",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "budgettracker",
+    "scheme": "brutalbudget",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,7 +14,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.shewbaka.budgettracker",
+      "bundleIdentifier": "com.shewbaka.brutalbudget",
+      "buildNumber": "1",
       "infoPlist": {
         "CADisableMinimumFrameDurationOnPhone": true,
         "NSFaceIDUsageDescription": "Unlock Budget Tracker with Face ID, Touch ID, or your device passcode when enabled.",
@@ -37,7 +38,20 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "045e1335-3c6d-4cf6-8e45-6f56a9837acf"
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "LiveActivity",
+                  "bundleIdentifier": "com.shewbaka.brutalbudget.LiveActivity",
+                  "entitlements": {}
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "d28d42e9-f256-4c6f-bfe1-2e93d08ebd59"
       }
     }
   }

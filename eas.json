@@ -15,6 +15,15 @@
       "ios": {
         "simulator": false
       }
+    },
+    "production": {
+      "distribution": "store",
+      "ios": {
+        "simulator": false
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   }
 }

@@ -54,29 +54,37 @@ if (native) {
   const { BackgroundTask, TaskManager } = native
 
   TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
-    // 2 units: Teller sync + recurring seed.
-    SyncActivityModule.startSyncActivity(2)
     try {
       const { ensureDbReady } = await import('../db')
       await ensureDbReady()
-      const { ensureRecurringTransactionsSeeded } = await import('./transactions/recurringAutoAdd')
 
+      const { listTellerEnrollments } = await import('../db/queries/tellerEnrollments')
+      const { listBankLinkedAccounts } = await import('../db/queries/accounts')
+      const { ensureRecurringTransactionsSeeded } = await import('./transactions/recurringAutoAdd')
       const { listTransactions } = await import('../db/queries/transactions')
       const { setMeta } = await import('../db/queries/appMeta')
       const { syncTellerAllAccounts } = await import('./teller/sync')
 
+      // 1 unit per enrollment + 2 per account (transactions + balance) + 1 for recurring seed
+      const enrollmentCount = listTellerEnrollments().length
+      const accountCount = listBankLinkedAccounts().length
+      const total = enrollmentCount + accountCount * 2 + 1
+
+      SyncActivityModule.startSyncActivity(total || 1)
+      let done = 0
+
       const countBefore = listTransactions().length
-      await syncTellerAllAccounts()
-      SyncActivityModule.updateSyncActivity(1)
+      await syncTellerAllAccounts(() => {
+        SyncActivityModule.updateSyncActivity(++done)
+      })
       const countAfter = listTransactions().length
       const newCount = Math.max(0, countAfter - countBefore)
 
       setMeta(META_LAST_BG_SYNC_AT, new Date().toISOString())
       setMeta(META_LAST_BG_SYNC_NEW_COUNT, String(newCount))
 
-      // Also seed any due manual recurring transactions (local-only).
       ensureRecurringTransactionsSeeded()
-      SyncActivityModule.updateSyncActivity(2)
+      SyncActivityModule.updateSyncActivity(++done)
 
       await sendSyncNotification(newCount)
       SyncActivityModule.endSyncActivity()

@@ -14,8 +14,8 @@ const withNoApsEnvironment: ConfigPlugin = (cfg) =>
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: config.name ?? 'budget-tracker-rn',
-  slug: config.slug ?? 'budget-tracker-rn',
+  name: config.name ?? 'Brutal Budget',
+  slug: config.slug ?? 'brutal-budget',
   icon: (config as any).icon ?? './assets/icon.png',
   plugins: [
     ...(config.plugins ?? []),
