@@ -13,12 +13,16 @@
     "preview": {
       "distribution": "internal",
       "ios": {
+        "image": "macos-sequoia-15.2-xcode-16.2",
+        "resourceClass": "m-medium",
         "simulator": false
       }
     },
     "production": {
       "distribution": "store",
       "ios": {
+        "image": "macos-sequoia-15.2-xcode-16.2",
+        "resourceClass": "m-medium",
         "simulator": false
       },
       "android": {
