@@ -33,8 +33,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-dev-client",
-      "expo-live-activity"
+      "expo-dev-client"
     ],
     "extra": {
       "router": {},
