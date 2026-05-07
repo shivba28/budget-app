@@ -20,6 +20,7 @@ export const transactions = sqliteTable('transactions', {
   source: text('source').notNull().default('bank'),
   account_label: text('account_label'),
   synced_at: text('synced_at'),
+  notes: text('notes'),
 })
 
 export const recurring_rules = sqliteTable('recurring_rules', {
@@ -83,10 +84,23 @@ export const categories = sqliteTable('categories', {
 export const trips = sqliteTable('trips', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
+  /** 'trip' | 'event' — distinguishes the two sub-types in the planning hub. */
+  type: text('type').notNull().default('trip'),
   start_date: text('start_date'),
   end_date: text('end_date'),
   budget_limit: real('budget_limit'),
   color: text('color'),
+  created_at: text('created_at').notNull(),
+})
+
+export const savings_goals = sqliteTable('savings_goals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  target_amount: real('target_amount').notNull(),
+  current_amount: real('current_amount').notNull().default(0),
+  target_date: text('target_date'),
+  color: text('color'),
+  notes: text('notes'),
   created_at: text('created_at').notNull(),
 })
 

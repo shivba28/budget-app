@@ -97,9 +97,9 @@ function buildMergedInsert(
 function maybeFlipDepositoryHistory(account: accountsQ.AccountRow): void {
   const t = account.type?.trim().toLowerCase() ?? ''
   if (t !== 'depository' || account.depository_amounts_inverted === 1) return
-  sqlite.runSync(
+  sqlite.execute(
     'UPDATE transactions SET amount = -amount WHERE account_id = ?',
-    account.id,
+    [account.id],
   )
   accountsQ.updateAccount(account.id, { depository_amounts_inverted: 1 })
 }
@@ -216,17 +216,14 @@ async function syncAccountTransactions(
     }
     const keepIds = parsedRows.map((r) => r.id)
     const placeholders = keepIds.map(() => '?').join(',')
-    sqlite.runSync(
+    sqlite.execute(
       `DELETE FROM transactions
        WHERE account_id = ?
          AND date >= ?
          AND date <= ?
          AND source = 'bank'
          AND id NOT IN (${placeholders})`,
-      account.id,
-      minDate,
-      maxDate,
-      ...keepIds,
+      [account.id, minDate, maxDate, ...keepIds],
     )
   }
 
@@ -235,7 +232,7 @@ async function syncAccountTransactions(
   }
   accountsQ.updateAccount(account.id, { last_synced: now })
 
-  sqlite.runSync(
+  sqlite.execute(
     `DELETE FROM transactions AS t_del
      WHERE t_del.account_id = ?
        AND t_del.pending = 1
@@ -249,7 +246,7 @@ async function syncAccountTransactions(
            AND abs(julianday(t_keep.date) - julianday(t_del.date)) <= 5
            AND t_keep.id != t_del.id
        )`,
-    account.id,
+    [account.id],
   )
 }
 

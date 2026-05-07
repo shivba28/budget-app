@@ -104,6 +104,7 @@ export function BrutalCard({
 
 export function BrutalTextField({
   label,
+  style,
   ...props
 }: TextInputProps & { label: string }) {
   return (
@@ -111,7 +112,7 @@ export function BrutalTextField({
       <Text style={fieldStyles.label}>{label}</Text>
       <TextInput
         placeholderTextColor="rgba(17,17,17,0.45)"
-        style={fieldStyles.input}
+        style={[fieldStyles.input, style]}
         {...props}
       />
     </View>

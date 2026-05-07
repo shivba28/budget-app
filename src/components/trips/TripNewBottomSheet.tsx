@@ -19,10 +19,11 @@ const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default
 type Props = {
   onCreated: (id: number) => void
   onDismiss: () => void
+  defaultType?: 'trip' | 'event'
 }
 
 export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
-  function TripNewBottomSheet({ onCreated, onDismiss }, ref) {
+  function TripNewBottomSheet({ onCreated, onDismiss, defaultType = 'trip' }, ref) {
     const add = useTripsStore((s) => s.add)
     const [name, setName] = useState('')
     const [budget, setBudget] = useState('')
@@ -49,6 +50,7 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
       const lim = budget.trim() === '' ? null : Number(budget)
       const id = add({
         name: n,
+        type: defaultType,
         start_date: start.trim() || null,
         end_date: end.trim() || null,
         budget_limit: lim !== null && !Number.isNaN(lim) ? lim : null,
@@ -83,13 +85,13 @@ export const TripNewBottomSheet = forwardRef<BottomSheetModal, Props>(
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>New trip / event</Text>
-          <Text style={styles.fieldLabel}>Trip or event name</Text>
+          <Text style={styles.title}>New {defaultType === 'event' ? 'event' : 'trip'}</Text>
+          <Text style={styles.fieldLabel}>{defaultType === 'event' ? 'Event' : 'Trip'} name</Text>
           <BottomSheetTextInput
             style={styles.fieldInput}
             value={name}
             onChangeText={setName}
-            placeholder="e.g. Iceland 2026…"
+            placeholder={defaultType === 'event' ? 'e.g. Birthday dinner…' : 'e.g. Iceland 2026…'}
             placeholderTextColor="#999"
             autoCorrect={false}
             autoCapitalize="words"

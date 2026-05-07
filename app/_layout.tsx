@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { Stack } from 'expo-router'
 
 import { InactivityWatcher } from '@/src/auth/InactivityWatcher'
+import { PrivacyOverlay } from '@/src/components/PrivacyOverlay'
 import { useAuthStore } from '@/src/auth/authStore'
 import { ensureDbReady } from '@/src/db'
 import { ErrorBoundary } from '@/src/components/ErrorBoundary'
@@ -76,6 +77,7 @@ export default function RootLayout() {
         <ErrorBoundary fallbackLabel="App error — tap to retry">
           <AuthTouchRoot>
             <InactivityWatcher />
+            <PrivacyOverlay />
             <SyncProgressBar />
             <OfflineBanner />
             <Stack screenOptions={{ headerShown: false }}>

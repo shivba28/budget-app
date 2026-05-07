@@ -9,6 +9,7 @@ type State = {
   load: () => void
   add: (input: {
     name: string
+    type?: 'trip' | 'event'
     start_date?: string | null
     end_date?: string | null
     budget_limit?: number | null
@@ -29,6 +30,7 @@ export const useTripsStore = create<State>((set, get) => ({
   add: (input) => {
     const id = q.insertTrip({
       name: input.name,
+      type: input.type ?? 'trip',
       start_date: input.start_date ?? null,
       end_date: input.end_date ?? null,
       budget_limit: input.budget_limit ?? null,

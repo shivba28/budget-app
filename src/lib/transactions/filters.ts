@@ -22,11 +22,12 @@ export type TransactionListFilters = {
 }
 
 export function sortDate(tx: TransactionRow): string {
-  return tx.effective_date ?? tx.date
+  return (tx.effective_date ?? tx.date) ?? ''
 }
 
 export function monthKeyFromTx(tx: TransactionRow): string {
-  return sortDate(tx).slice(0, 7)
+  const d = sortDate(tx)
+  return d ? d.slice(0, 7) : ''
 }
 
 export function passesPendingVisibility(

@@ -1,55 +1,37 @@
-import { FlashList, FlashListRef } from '@shopify/flash-list'
-import { BottomSheetModal } from '@gorhom/bottom-sheet'
+/**
+ * Home Dashboard — balance summary, this-month snapshot, budget spotlight,
+ * upcoming bills, and recent transactions with a "View all" shortcut.
+ */
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
 import {
-  Animated,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
-  Modal,
 } from 'react-native'
-import Svg, { Circle, Path } from 'react-native-svg'
-import { useRouter } from 'expo-router'
-import { useUiSignals } from '@/src/stores/uiSignals'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useRouter } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 
-import { DateInput } from '@/src/components/DateInput'
-import { EmptyState } from '@/src/components/EmptyState'
-import { AddTransactionBottomSheet } from '@/src/components/transactions/AddTransactionBottomSheet'
-import { AllocationBottomSheet } from '@/src/components/transactions/AllocationBottomSheet'
-import { EditTransactionBottomSheet } from '@/src/components/transactions/EditTransactionBottomSheet'
-import { TransactionSwipeRow } from '@/src/components/transactions/TransactionSwipeRow'
 import { META_LAST_TELLER_SYNC_AT } from '@/src/db/constants'
 import * as meta from '@/src/db/queries/appMeta'
-import type { TransactionRow } from '@/src/db/queries/transactions'
-import {
-  applyTransactionFilters,
-  type DatePreset,
-  type TransactionListFilters,
-} from '@/src/lib/transactions/filters'
-import {
-  buildGroupedRows,
-  getMonthKeysDescending,
-  type TxListRow,
-} from '@/src/lib/transactions/listModel'
+import * as budgetsQ from '@/src/db/queries/budgets'
 import { useAccountsStore } from '@/src/stores/accountsStore'
+import { useBudgetsStore } from '@/src/stores/budgetsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
 import * as accountsQ from '@/src/db/queries/accounts'
 import { useTransactionsStore } from '@/src/stores/transactionsStore'
 import { useTabStore } from '@/src/stores/tabStore'
 import { useSyncStore } from '@/src/stores/syncStore'
+import { getUpcomingBills, scheduleRecurringBillReminders, type UpcomingBill } from '@/src/lib/notifications'
 
 const NEO = {
   cream: '#FAFAF5',
@@ -57,7 +39,8 @@ const NEO = {
   yellow: '#F5C842',
   sub: '#aaaaaa',
   incomeGreen: '#3B6D11',
-  incomeBorder: '#F5C842',
+  creditRed: '#CC2222',
+  muted: '#E8E8E0',
 } as const
 
 const NEO_MONO = Platform.select({
@@ -71,114 +54,40 @@ const ACCOUNT_CARD_COLORS = [
   '#F4A261', '#457B9D', '#E9C46A', '#B5179E', '#4CC9F0',
 ]
 
-function formatMonthLabel(ym: string): string {
-  const [y, m] = ym.split('-').map(Number)
-  if (!y || !m) return ym
-  const d = new Date(y, m - 1, 1)
-  return d.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+// ── helpers ────────────────────────────────────────────────────────────────
+
+function fmtCurrency(n: number, sign = false): string {
+  const fmt = new Intl.NumberFormat(undefined, {
+    style: 'currency', currency: 'USD',
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })
+  if (sign) return n >= 0 ? `+${fmt.format(n)}` : `-${fmt.format(Math.abs(n))}`
+  return fmt.format(n)
 }
 
-function formatLastSyncShort(iso?: string): string {
-  if (!iso) return 'Never'
+function formatLastSync(iso?: string): string {
+  if (!iso) return 'Never synced'
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return 'Unknown'
-  const d = Date.now() - t
-  const m = Math.floor(d / 60000)
+  const diff = Date.now() - t
+  const m = Math.floor(diff / 60000)
   if (m < 1) return 'Just now'
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   if (h < 48) return `${h}h ago`
-  const days = Math.floor(h / 24)
-  return `${days}d ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7)
 }
 
 function formatTxMoney(amount: number): string {
-  const fmt = new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-  const s = fmt.format(Math.abs(amount))
-  return amount >= 0 ? `+${s}` : `-${s}`
+  const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return amount >= 0 ? `+${fmt.format(Math.abs(amount))}` : `-${fmt.format(Math.abs(amount))}`
 }
 
-function formatBalanceMoney(amount: number): string {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
-}
-
-const SKELETON_WIDTHS = [
-  ['62%', '18%'],
-  ['48%', '22%'],
-  ['71%', '16%'],
-  ['55%', '20%'],
-  ['40%', '24%'],
-  ['66%', '17%'],
-  ['53%', '21%'],
-  ['44%', '19%'],
-] as const
-
-function SkeletonRow({ index }: { index: number }) {
-  const opacity = useRef(new Animated.Value(1)).current
-  const [descW, amtW] = SKELETON_WIDTHS[index % SKELETON_WIDTHS.length]!
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 700,
-          delay: index * 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ]),
-    )
-    anim.start()
-    return () => anim.stop()
-  }, [opacity, index])
-
-  return (
-    <Animated.View
-      style={[
-        styles.txRow,
-        { borderLeftWidth: 4, borderLeftColor: '#D4D4C4', opacity },
-      ]}
-    >
-      <View style={styles.txRowTop}>
-        <View style={[styles.skeletonBar, { width: descW, height: 14 }]} />
-        <View style={[styles.skeletonBar, { width: amtW, height: 14 }]} />
-      </View>
-      <View style={[styles.skeletonBar, { width: '38%', height: 11, marginTop: 7 }]} />
-    </Animated.View>
-  )
-}
-
-function SkeletonList({ count = 10 }: { count?: number }) {
-  return (
-    <View style={{ paddingTop: 4 }}>
-      {Array.from({ length: count }, (_, i) => (
-        <SkeletonRow key={i} index={i} />
-      ))}
-    </View>
-  )
-}
-
-const DATE_PRESETS: { key: DatePreset; label: string }[] = [
-  { key: 'all', label: 'All dates' },
-  { key: 'this_month', label: 'This month' },
-  { key: 'last_30', label: '30 days' },
-  { key: 'custom', label: 'Custom' },
-]
+// ── Sub-components ─────────────────────────────────────────────────────────
 
 type AccountDetail = {
   id: string
@@ -192,181 +101,172 @@ type AccountDetail = {
 
 function AccountCard({ account, colorIndex }: { account: AccountDetail; colorIndex: number }) {
   const color = ACCOUNT_CARD_COLORS[colorIndex % ACCOUNT_CARD_COLORS.length]!
-  const isNegative = account.balance < 0
-  const typeLabel = account.isCreditType ? 'CREDIT' : account.isManual ? 'MANUAL' : 'BANK'
-
+  const isNeg = account.balance < 0
+  const typeLabel = account.isCreditType ? 'CREDIT' : 'BANK'
   return (
     <View style={[styles.accountCard, { backgroundColor: color }]}>
-      <View style={styles.accountCardTypeChip}>
-        <Text style={styles.accountCardTypeText}>{typeLabel}</Text>
+      <View style={styles.accountCardChip}>
+        <Text style={styles.accountCardChipText}>{typeLabel}</Text>
       </View>
-      {account.institution ? (
-        <Text style={styles.accountCardInstitution} numberOfLines={1}>
-          {account.institution}
-        </Text>
-      ) : null}
-      <Text style={styles.accountCardName} numberOfLines={2}>
-        {account.name}
-      </Text>
-      <Text style={[styles.accountCardBalance, isNegative && styles.accountCardBalanceNeg]}>
-        {isNegative ? '-' : '+'}{formatBalanceMoney(Math.abs(account.balance))}
+      {account.institution ? <Text style={styles.accountCardInst} numberOfLines={1}>{account.institution}</Text> : null}
+      <Text style={styles.accountCardName} numberOfLines={2}>{account.name}</Text>
+      <Text style={[styles.accountCardBalance, isNeg && { color: '#FFD0D0' }]}>
+        {isNeg ? '-' : '+'}{fmtCurrency(Math.abs(account.balance))}
       </Text>
     </View>
   )
 }
 
-export default function TransactionsScreen() {
+function SectionTitle({ children }: { children: string }) {
+  return <Text style={styles.sectionTitle}>{children}</Text>
+}
+
+/** Neo-brutalist action button used in section headers (Edit, View all, etc.) */
+function ActionBtn({ label, icon, onPress }: { label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress}>
+      {({ pressed }) => (
+        <View style={[styles.actionBtn, pressed && styles.actionBtnPressed]} pointerEvents="none">
+          <Text style={styles.actionBtnText}>{label}</Text>
+          <Ionicons name={icon} size={11} color={NEO.ink} />
+        </View>
+      )}
+    </Pressable>
+  )
+}
+
+// ── Main Screen ────────────────────────────────────────────────────────────
+
+export default function HomeScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const activeIndex = useTabStore((s) => s.activeIndex)
-  const listContentBottomPad = insets.bottom + 76
+
   const items = useTransactionsStore((s) => s.items)
   const load = useTransactionsStore((s) => s.load)
-  const removeTransaction = useTransactionsStore((s) => s.remove)
   const categoryRows = useCategoriesStore((s) => s.items)
   const loadCategories = useCategoriesStore((s) => s.load)
   const accountRows = useAccountsStore((s) => s.items)
   const loadAccounts = useAccountsStore((s) => s.load)
+  const totalCap = useBudgetsStore((s) => s.totalCap)
 
-  const accountMap = useMemo(
-    () => new Map(accountsQ.listAllAccounts().map((a) => [a.id, { name: a.name, institution: a.institution }])),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accountRows],
-  )
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastSync, setLastSync] = useState<string | undefined>(() => meta.getMeta(META_LAST_TELLER_SYNC_AT))
+  const [accordionOpen, setAccordionOpen] = useState(false)
+  const [upcomingBills, setUpcomingBills] = useState<UpcomingBill[]>([])
 
-  const accountOptions = useMemo(() => {
-    const rows = accountsQ.listAllAccounts()
-    return rows.map((a) => {
-      const isManual = a.enrollment_id === 'manual'
-      const label = isManual
-        ? (a.name ?? 'Manual account')
-        : ([a.institution, a.name].filter(Boolean).join(' · ') || 'Bank account')
-      return { id: a.id, label }
-    })
-  }, [accountRows])
+  const allAccountsList = useMemo(() => accountsQ.listAllAccounts(), [accountRows])
+
+  // ── Balance summary ──────────────────────────────────────────────────────
+  const manualAccountSums = useMemo(() => {
+    const sums = new Map<string, number>()
+    for (const tx of items) sums.set(tx.account_id, (sums.get(tx.account_id) ?? 0) + tx.amount)
+    return sums
+  }, [items])
+
+  const balanceSummary = useMemo(() => {
+    let deposits = 0, creditOwed = 0
+    const perAccount: AccountDetail[] = []
+    for (const acct of allAccountsList) {
+      const type = acct.type?.toLowerCase() ?? ''
+      const isManual = acct.enrollment_id === 'manual'
+      const isCreditType = type === 'credit' || type === 'charge'
+      let balance: number
+      if (isManual) {
+        balance = manualAccountSums.get(acct.id) ?? 0
+        if (balance > 0) deposits += balance; else creditOwed += Math.abs(balance)
+        continue
+      } else if (isCreditType) {
+        balance = acct.balance_ledger ?? 0
+        creditOwed += balance
+      } else {
+        balance = acct.balance_available ?? acct.balance_ledger ?? 0
+        deposits += balance
+      }
+      perAccount.push({ id: acct.id, name: acct.name ?? 'Account', institution: acct.institution, type: acct.type, balance, isManual, isCreditType })
+    }
+    return { deposits, creditOwed, net: deposits - creditOwed, perAccount }
+  }, [allAccountsList, manualAccountSums])
+
+  // ── This month ───────────────────────────────────────────────────────────
+  const thisMonthStats = useMemo(() => {
+    const mk = currentMonthKey()
+    let income = 0, spend = 0
+    for (const tx of items) {
+      const txMonth = (tx.effective_date ?? tx.date)?.slice(0, 7)
+      if (txMonth !== mk) continue
+      const amt = tx.my_share != null ? tx.my_share : tx.amount
+      if (amt > 0) income += amt
+      else spend += Math.abs(amt)
+    }
+    return { income, spend, net: income - spend }
+  }, [items])
+
+  // ── Budget spotlight ─────────────────────────────────────────────────────
+  const { budgetSpotlight, capSpotlight } = useMemo(() => {
+    const mk = currentMonthKey()
+    const specific = budgetsQ.listBudgets(mk)
+    const budgets = specific.length > 0 ? specific : budgetsQ.listBudgets('default')
+
+    // Total monthly spend (expenses only) for cap row
+    let totalSpend = 0
+    const spendByCat = new Map<string, number>()
+    for (const tx of items) {
+      const txMonth = (tx.effective_date ?? tx.date)?.slice(0, 7)
+      if (txMonth !== mk) continue
+      const amt = tx.my_share != null ? tx.my_share : tx.amount
+      if (amt < 0) {
+        const spend = Math.abs(amt)
+        totalSpend += spend
+        const cat = (tx.category ?? '').trim() || 'Other'
+        spendByCat.set(cat, (spendByCat.get(cat) ?? 0) + spend)
+      }
+    }
+
+    const capRow = totalCap != null
+      ? { spent: totalSpend, limit: totalCap, pct: Math.min(1, totalSpend / Math.max(1, totalCap)) }
+      : null
+
+    const rows = budgets.length === 0 ? [] : budgets
+      .map((b) => ({
+        category: b.category,
+        limit: b.amount,
+        spent: spendByCat.get(b.category) ?? 0,
+        pct: Math.min(1, (spendByCat.get(b.category) ?? 0) / Math.max(1, b.amount)),
+      }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 4)
+
+    return { budgetSpotlight: rows, capSpotlight: capRow }
+  }, [items, totalCap])
+
+  // ── Recent transactions ──────────────────────────────────────────────────
+  const recentTx = useMemo(() => items.slice(0, 6), [items])
 
   const categoryColorMap = useMemo(
     () => new Map(categoryRows.map((c) => [c.label, c.color])),
     [categoryRows],
   )
 
-  // All accounts for balance summary (including bank-linked)
-  const allAccountsList = useMemo(
-    () => accountsQ.listAllAccounts(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const accountMap = useMemo(
+    () => new Map(accountsQ.listAllAccounts().map((a) => [a.id, { name: a.name, institution: a.institution }])),
     [accountRows],
   )
 
-  // Per-account manual transaction sums (only needed for manual accounts)
-  const manualAccountSums = useMemo(() => {
-    const sums = new Map<string, number>()
-    for (const tx of items) {
-      // We'll filter per-account in the summary; accumulate all here
-      sums.set(tx.account_id, (sums.get(tx.account_id) ?? 0) + tx.amount)
-    }
-    return sums
-  }, [items])
-
-  // Balance summary: bank accounts use Teller-stored balances, manual use tx sums
-  const balanceSummary = useMemo(() => {
-    let deposits = 0
-    let creditOwed = 0
-    const perAccount: AccountDetail[] = allAccountsList.map((acct) => {
-      const type = acct.type?.toLowerCase() ?? ''
-      const isManual = acct.enrollment_id === 'manual'
-      const isCreditType = type === 'credit' || type === 'charge'
-
-      let balance: number
-      if (isManual) {
-        // Manual: derive from transaction sums
-        balance = manualAccountSums.get(acct.id) ?? 0
-        if (balance > 0) deposits += balance
-        else creditOwed += Math.abs(balance)
-      } else if (isCreditType) {
-        // Credit: use ledger balance (positive = amount owed)
-        balance = acct.balance_ledger ?? 0
-        creditOwed += balance
-      } else {
-        // Depository / other: use available balance
-        balance = acct.balance_available ?? acct.balance_ledger ?? 0
-        deposits += balance
-      }
-
-      return {
-        id: acct.id,
-        name: acct.name ?? 'Account',
-        institution: acct.institution,
-        type: acct.type,
-        balance,
-        isManual,
-        isCreditType,
-      }
-    })
-    return { deposits, creditOwed, net: deposits - creditOwed, perAccount }
-  }, [allAccountsList, manualAccountSums])
-
-  const [refreshing, setRefreshing] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [filters, setFilters] = useState<TransactionListFilters>({
-    search: '',
-    datePreset: 'all',
-    category: 'all',
-    accountId: 'all',
-    cashFlow: 'all',
-    source: 'all',
-    includeUnconfirmedPending: true,
-  })
-  const [filtersExpanded, setFiltersExpanded] = useState(false)
-  const [showCustomDate, setShowCustomDate] = useState(false)
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
-  const [accordionOpen, setAccordionOpen] = useState(false)
-  const [showSearch, setShowSearch] = useState(false)
-
-  const listRef = useRef<FlashListRef<TxListRow>>(null)
-  const searchInputRef = useRef<TextInput>(null)
-  const summaryHeightRef = useRef(180)
-  const showSearchRef = useRef(false)
-  const hasActiveFiltersRef = useRef(false)
-  // Track whether the list content is shorter than the container (can't scroll)
-  const listContainerHeightRef = useRef(0)
-  const listContentHeightRef = useRef(0)
+  // ── Load / refresh ───────────────────────────────────────────────────────
+  const refreshUpcomingBills = useCallback(() => {
+    try {
+      setUpcomingBills(getUpcomingBills(30))
+      void scheduleRecurringBillReminders()
+    } catch { /* table not ready */ }
+  }, [])
 
   useEffect(() => {
-    showSearchRef.current = showSearch
-  }, [showSearch])
-
-  useEffect(() => {
-    hasActiveFiltersRef.current =
-      filters.search.trim() !== '' ||
-      filters.datePreset !== 'all' ||
-      filters.category !== 'all' ||
-      filters.accountId !== 'all' ||
-      filters.cashFlow !== 'all'
-  }, [filters])
-
-  const addTransactionSignal = useUiSignals((s) => s.addTransactionSignal)
-  const addRef = useRef<BottomSheetModal>(null)
-  const mountedSignalRef = useRef(addTransactionSignal)
-  const allocRef = useRef<BottomSheetModal>(null)
-  const [allocTxId, setAllocTxId] = useState<string | null>(null)
-  const editRef = useRef<BottomSheetModal>(null)
-  const [editTxId, setEditTxId] = useState<string | null>(null)
-  const [lastSync, setLastSync] = useState<string | undefined>(() =>
-    meta.getMeta(META_LAST_TELLER_SYNC_AT),
-  )
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        await load()
-      } finally {
-        setIsLoading(false)
-      }
-    })()
+    void load()
     loadCategories()
     loadAccounts()
-  }, [load, loadCategories, loadAccounts])
+    refreshUpcomingBills()
+  }, [load, loadCategories, loadAccounts, refreshUpcomingBills])
 
   useEffect(() => {
     if (activeIndex !== 0) return
@@ -374,710 +274,482 @@ export default function TransactionsScreen() {
     loadCategories()
     loadAccounts()
     setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-  }, [activeIndex, load, loadCategories, loadAccounts])
+    refreshUpcomingBills()
+  }, [activeIndex, load, loadCategories, loadAccounts, refreshUpcomingBills])
 
   const syncStatus = useSyncStore((s) => s.status)
   useEffect(() => {
     if (syncStatus !== 'done') return
     void load()
-    loadAccounts() // picks up freshly stored Teller balances
+    loadAccounts()
     setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-  }, [syncStatus, loadAccounts])
+    refreshUpcomingBills()
+  }, [syncStatus, loadAccounts, refreshUpcomingBills])
 
-  useEffect(() => {
-    if (addTransactionSignal <= mountedSignalRef.current) return
-    setTimeout(() => addRef.current?.present(), 0)
-  }, [addTransactionSignal])
-
+  // Pull-to-refresh: use triggerManualSyncNow so the Live Activity / SyncProgressBar
+  // fires correctly even if a startup auto-sync is still in progress. It waits for
+  // any in-progress sync to finish (up to 15 s) before triggering a fresh one so
+  // the user always gets a Live Activity for their pull.
   const onRefresh = useCallback(() => {
     setRefreshing(true)
     void (async () => {
       try {
-        const { triggerManualSync } = await import('@/src/lib/foregroundSync')
-        await triggerManualSync()
+        const { triggerManualSyncNow } = await import('@/src/lib/foregroundSync')
+        await triggerManualSyncNow()
         setLastSync(meta.getMeta(META_LAST_TELLER_SYNC_AT))
-      } catch {
-        /* offline / network / Teller error */
-      } finally {
+      } catch { /* offline or no accounts */ } finally {
         void load()
+        loadCategories()
+        loadAccounts()
+        refreshUpcomingBills()
         setRefreshing(false)
       }
     })()
-  }, [load])
+  }, [load, loadCategories, loadAccounts, refreshUpcomingBills])
 
-  const filtered = useMemo(
-    () => applyTransactionFilters(items, filters),
-    [items, filters],
-  )
+  // ── Render ───────────────────────────────────────────────────────────────
+  return (
+    <View style={styles.screen}>
+      {/* Top bar */}
+      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
+        <Text style={[styles.topbarTitle, { flex: 1 }]}>Home</Text>
+        <View style={styles.syncBadge}>
+          <Ionicons name="sync-outline" size={11} color={NEO.sub} />
+          <Text style={styles.syncBadgeText}>{formatLastSync(lastSync)}</Text>
+        </View>
+      </View>
 
-  const monthKeys = useMemo(
-    () => getMonthKeysDescending(filtered),
-    [filtered],
-  )
-  const topMonthKey = monthKeys[0] ?? null
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 80 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
 
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  const prevMonthKeysRef = useRef<string[]>([])
+        {/* ── 1. Balance Summary ─────────────────────────────── */}
+        <View style={styles.balanceSection}>
+          <View style={styles.balanceHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.balanceLabel}>NET BALANCE</Text>
+              <Text style={styles.balanceAmount}>{fmtCurrency(balanceSummary.net)}</Text>
+            </View>
+          </View>
 
-  useLayoutEffect(() => {
-    const prev = prevMonthKeysRef.current
-    prevMonthKeysRef.current = monthKeys
+          <View style={styles.balanceTotalsRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.balanceTotalLabel}>DEPOSITS</Text>
+              <Text style={styles.depositsAmt}>+{fmtCurrency(balanceSummary.deposits)}</Text>
+            </View>
+            <View style={styles.balanceDivider} />
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              <Text style={styles.balanceTotalLabel}>CREDIT OWED</Text>
+              <Text style={styles.creditAmt}>-{fmtCurrency(balanceSummary.creditOwed)}</Text>
+            </View>
+          </View>
 
-    if (monthKeys.length === 0) {
-      setCollapsed(new Set())
-      return
-    }
-
-    const top = monthKeys[0]!
-    const prevSet = new Set(prev)
-
-    setCollapsed((oldCollapsed) => {
-      const next = new Set<string>()
-      for (const mk of monthKeys) {
-        const isNew = prevSet.size === 0 || !prevSet.has(mk)
-        if (mk === top) {
-          if (!isNew && oldCollapsed.has(mk)) next.add(mk)
-          continue
-        }
-        if (isNew) {
-          next.add(mk)
-        } else if (oldCollapsed.has(mk)) {
-          next.add(mk)
-        }
-      }
-      return next
-    })
-  }, [monthKeys])
-
-  const toggleMonth = useCallback(
-    (monthKey: string) => {
-      setCollapsed((prev) => {
-        const n = new Set(prev)
-        if (n.has(monthKey)) n.delete(monthKey)
-        else n.add(monthKey)
-        return n
-      })
-    },
-    [],
-  )
-
-  const { rows } = useMemo(
-    () => buildGroupedRows(filtered, collapsed),
-    [filtered, collapsed],
-  )
-
-  const openAllocate = useCallback((tx: TransactionRow) => {
-    setAllocTxId(tx.id)
-    setTimeout(() => allocRef.current?.present(), 0)
-  }, [])
-
-  const onDelete = useCallback((tx: TransactionRow) => {
-    removeTransaction(tx.id)
-  }, [removeTransaction])
-
-  const onEdit = useCallback((tx: TransactionRow) => {
-    setEditTxId(tx.id)
-    setTimeout(() => editRef.current?.present(), 0)
-  }, [])
-
-  const onEditDismiss = useCallback(() => {
-    setEditTxId(null)
-  }, [])
-
-  const onAllocDismiss = useCallback(() => {
-    setAllocTxId(null)
-  }, [])
-
-  const setPreset = (datePreset: DatePreset) => {
-    if (datePreset === 'custom') {
-      const cur = filters.customDateRange
-      setCustomStart(cur?.start ?? new Date().toISOString().slice(0, 10))
-      setCustomEnd(cur?.end ?? new Date().toISOString().slice(0, 10))
-      setShowCustomDate(true)
-      return
-    }
-    setFilters((f) => ({ ...f, datePreset, customDateRange: undefined }))
-  }
-
-  const onSearchIconPress = useCallback(() => {
-    setShowSearch((prev) => {
-      if (prev) return prev // hide only happens by scrolling back to top
-      // Opening: scroll list so search card is visible, then focus
-      setTimeout(() => {
-        listRef.current?.scrollToOffset({ offset: summaryHeightRef.current, animated: true })
-        setTimeout(() => searchInputRef.current?.focus(), 350)
-      }, 30)
-      return true
-    })
-  }, [])
-
-  const maybeShowSearchForShortList = useCallback(() => {
-    // If the content doesn't overflow the container the user can never scroll,
-    // so reveal the search bar immediately.
-    if (
-      !showSearchRef.current &&
-      listContentHeightRef.current > 0 &&
-      listContentHeightRef.current <= listContainerHeightRef.current
-    ) {
-      setShowSearch(true)
-    }
-  }, [])
-
-  const onListLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
-    listContainerHeightRef.current = e.nativeEvent.layout.height
-    maybeShowSearchForShortList()
-  }, [maybeShowSearchForShortList])
-
-  const onListContentSizeChange = useCallback((_w: number, h: number) => {
-    listContentHeightRef.current = h
-    maybeShowSearchForShortList()
-  }, [maybeShowSearchForShortList])
-
-  const onListScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
-    const y = e.nativeEvent.contentOffset.y
-    // Show search once user has scrolled ~80% through the summary section
-    if (!showSearchRef.current && y > summaryHeightRef.current * 0.8) {
-      setShowSearch(true)
-    }
-    // Hide search when back near the top, but only if no active filters/search
-    if (showSearchRef.current && y < 30 && !hasActiveFiltersRef.current) {
-      setShowSearch(false)
-    }
-  }, [])
-
-  const extraData = useMemo(
-    () => ({
-      f: filters,
-      c: [...collapsed].sort().join('|'),
-      top: topMonthKey ?? '',
-      pad: listContentBottomPad,
-    }),
-    [filters, collapsed, topMonthKey, listContentBottomPad],
-  )
-
-  const renderItem = useCallback(
-    ({ item }: { item: TxListRow }) => {
-      if (item.type === 'header') {
-        const isTop = item.monthKey === topMonthKey
-        const isCollapsed = collapsed.has(item.monthKey)
-        return (
-          <Pressable
-            onPress={() => toggleMonth(item.monthKey)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: !isCollapsed }}
-            accessibilityLabel={`${formatMonthLabel(item.monthKey)}, ${item.count} transactions`}
-            style={styles.monthAccordionPressable}
-          >
+          {/* Account cards accordion */}
+          <Pressable onPress={() => setAccordionOpen((v) => !v)}>
             {({ pressed }) => (
-              <View
-                style={[
-                  styles.monthAccordionRow,
-                  pressed && styles.monthAccordionRowPressed,
-                ]}
-                pointerEvents="none"
-              >
-                <View style={styles.monthLeft}>
-                  <Text
-                    style={[
-                      styles.monthAccordionChev,
-                      isTop && styles.monthAccordionChevTop,
-                    ]}
-                  >
-                    {isCollapsed ? '▶' : '▼'}
-                  </Text>
-                  <Text style={styles.monthSectionLabel} numberOfLines={1}>
-                    {formatMonthLabel(item.monthKey)}
-                  </Text>
-                </View>
-                <Text style={styles.monthCount} numberOfLines={1}>
-                  {item.count} txns
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        )
-      }
-      const tx = item.tx
-      const isIncome = tx.amount > 0
-      const categoryColor = tx.category ? (categoryColorMap.get(tx.category) ?? null) : null
-      const leftBorderColor = categoryColor ?? (isIncome ? NEO.incomeBorder : NEO.ink)
-      const acct = accountMap.get(tx.account_id)
-      const accountLabel = tx.source === 'bank'
-        ? [acct?.institution, acct?.name ?? tx.account_label].filter(Boolean).join(' · ')
-        : (acct?.name ?? tx.account_label ?? null)
-      return (
-        <TransactionSwipeRow
-          tx={tx}
-          onAllocate={openAllocate}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        >
-          <View
-            style={[
-              styles.txRow,
-              { borderLeftWidth: 4, borderLeftColor: leftBorderColor },
-            ]}
-          >
-            <View style={styles.txRowTop}>
-              <Text style={styles.txDesc} numberOfLines={1}>
-                {tx.description}
-              </Text>
-              <View style={styles.txAmountCol}>
-                <Text
-                  style={[
-                    styles.txAmount,
-                    tx.my_share != null
-                      ? styles.txAmountExpense
-                      : isIncome
-                        ? styles.txAmountIncome
-                        : tx.amount < 0
-                          ? styles.txAmountExpense
-                          : undefined,
-                  ]}
-                >
-                  {tx.my_share != null
-                    ? formatTxMoney(tx.my_share)
-                    : formatTxMoney(tx.amount)}
-                </Text>
-                {tx.my_share != null ? (
-                  <Text style={styles.txShare}>
-                    full: {formatTxMoney(tx.amount)}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-            <Text style={styles.txMeta}>
-              {tx.effective_date ?? tx.date}
-              {accountLabel ? ` · ${accountLabel}` : ''}
-              {tx.category ? ` · ${tx.category}` : ''}
-            </Text>
-            {tx.pending === 1 ?
-              <Text style={styles.txMeta}>
-                <Text style={styles.txPendingTag}>{'PENDING'}</Text>
-              </Text>
-            : null}
-          </View>
-        </TransactionSwipeRow>
-      )
-    },
-    [accountMap, categoryColorMap, collapsed, onDelete, onEdit, openAllocate, toggleMonth, topMonthKey],
-  )
-
-  const renderListHeader = useCallback(
-    () => (
-      <View>
-        {/* ── Balance Summary ──────────────────────────────── */}
-        <View
-          style={styles.summarySection}
-          onLayout={(e) => { summaryHeightRef.current = e.nativeEvent.layout.height }}
-        >
-          {/* Net balance row + search icon */}
-          <View style={styles.summaryHeaderRow}>
-            <View style={styles.summaryNetBlock}>
-              <Text style={styles.summaryNetLabel}>NET BALANCE</Text>
-              <Text style={styles.summaryNetAmount}>
-                {formatBalanceMoney(balanceSummary.net)}
-              </Text>
-            </View>
-            <Pressable
-              onPress={onSearchIconPress}
-              accessibilityRole="button"
-              accessibilityLabel={showSearch ? 'Hide search' : 'Show search'}
-            >
-              {({ pressed }) => (
-                <View style={[styles.searchIconBtn, pressed && { opacity: 0.7 }]}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Circle cx={11} cy={11} r={7} stroke={NEO.ink} strokeWidth={2.5} />
-                    <Path
-                      d="M16.5 16.5 L21 21"
-                      stroke={NEO.ink}
-                      strokeWidth={2.5}
-                      strokeLinecap="round"
-                    />
-                  </Svg>
-                </View>
-              )}
-            </Pressable>
-          </View>
-
-          {/* Deposits / Credit totals */}
-          <View style={styles.summaryTotalsRow}>
-            <View style={styles.summaryTotalItem}>
-              <Text style={styles.summaryTotalLabel}>DEPOSITS</Text>
-              <Text style={styles.summaryDepositAmt}>
-                +{formatBalanceMoney(balanceSummary.deposits)}
-              </Text>
-            </View>
-            <View style={styles.summaryTotalDivider} />
-            <View style={[styles.summaryTotalItem, { alignItems: 'flex-end' }]}>
-              <Text style={styles.summaryTotalLabel}>CREDIT</Text>
-              <Text style={styles.summaryCreditAmt}>
-                -{formatBalanceMoney(balanceSummary.creditOwed)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Accordion toggle */}
-          <Pressable
-            onPress={() => setAccordionOpen((v) => !v)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: accordionOpen }}
-            accessibilityLabel={accordionOpen ? 'Collapse accounts' : 'Expand accounts'}
-          >
-            {({ pressed }) => (
-              <View style={[styles.accordionToggleBtn, pressed && { opacity: 0.75 }]}>
-                <Text style={styles.accordionToggleText}>
-                  {accordionOpen ? '▲  HIDE ACCOUNTS' : '▼  SHOW ACCOUNTS'}
+              <View style={[styles.accordionBtn, pressed && { opacity: 0.75 }]} pointerEvents="none">
+                <Ionicons
+                  name={accordionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={12}
+                  color={NEO.cream}
+                />
+                <Text style={styles.accordionBtnText}>
+                  {accordionOpen ? 'HIDE ACCOUNTS' : 'SHOW ACCOUNTS'}
                 </Text>
               </View>
             )}
           </Pressable>
 
-          {/* Account cards horizontal scroll */}
           {accordionOpen ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={styles.accountCardsScroll}
-              contentContainerStyle={styles.accountCardsContent}
+              style={{ marginTop: 10, marginBottom: 4 }}
+              contentContainerStyle={{ gap: 10, paddingBottom: 6 }}
             >
               {balanceSummary.perAccount.length === 0 ? (
-                <View style={styles.accountCardsEmpty}>
-                  <Text style={styles.accountCardsEmptyText}>No accounts yet</Text>
+                <View style={styles.noAccountsCard}>
+                  <Text style={styles.noAccountsText}>No linked accounts</Text>
                 </View>
-              ) : (
-                balanceSummary.perAccount.map((acct, i) => (
-                  <AccountCard key={acct.id} account={acct} colorIndex={i} />
-                ))
-              )}
+              ) : balanceSummary.perAccount.map((acct, i) => (
+                <AccountCard key={acct.id} account={acct} colorIndex={i} />
+              ))}
             </ScrollView>
           ) : null}
         </View>
 
-        {/* ── Search / Filter Card (hidden until triggered) ── */}
-        <View style={showSearch ? styles.card : styles.cardHidden} accessibilityRole="none">
-          <Text style={styles.inputLabel}>Search</Text>
-          <View style={styles.searchAccordionRow}>
-            <View style={styles.searchCol}>
-              <TextInput
-                ref={searchInputRef}
-                value={filters.search}
-                onChangeText={(search) => setFilters((f) => ({ ...f, search }))}
-                placeholder="Filter by description..."
-                placeholderTextColor="#888888"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.inputField}
+        {/* ── 2. This Month Snapshot ─────────────────────────── */}
+        <View style={styles.section}>
+          <SectionTitle>THIS MONTH</SectionTitle>
+          <View style={styles.thisMonthCard}>
+            <View style={styles.thisMonthRow}>
+              <View style={styles.thisMonthStat}>
+                <Text style={styles.thisMonthStatLabel}>INCOME</Text>
+                <Text style={[styles.thisMonthStatValue, { color: '#4ADE80' }]}>
+                  +{fmtCurrency(thisMonthStats.income)}
+                </Text>
+              </View>
+              <View style={styles.thisMonthDivider} />
+              <View style={[styles.thisMonthStat, { alignItems: 'center' }]}>
+                <Text style={styles.thisMonthStatLabel}>SPEND</Text>
+                <Text style={[styles.thisMonthStatValue, { color: '#F87171' }]}>
+                  -{fmtCurrency(thisMonthStats.spend)}
+                </Text>
+              </View>
+              <View style={styles.thisMonthDivider} />
+              <View style={[styles.thisMonthStat, { alignItems: 'flex-end' }]}>
+                <Text style={styles.thisMonthStatLabel}>NET</Text>
+                <Text style={[
+                  styles.thisMonthStatValue,
+                  { color: thisMonthStats.net >= 0 ? '#4ADE80' : '#F87171' },
+                ]}>
+                  {thisMonthStats.net >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(thisMonthStats.net))}
+                </Text>
+              </View>
+            </View>
+            {/* Spend vs income progress bar */}
+            {thisMonthStats.income > 0 || thisMonthStats.spend > 0 ? (
+              <View style={styles.monthBar}>
+                <View
+                  style={[
+                    styles.monthBarIncome,
+                    { flex: thisMonthStats.income / Math.max(1, thisMonthStats.income + thisMonthStats.spend) },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.monthBarSpend,
+                    { flex: thisMonthStats.spend / Math.max(1, thisMonthStats.income + thisMonthStats.spend) },
+                  ]}
+                />
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {/* ── 3. Budget Spotlight ────────────────────────────── */}
+        {(budgetSpotlight.length > 0 || capSpotlight != null) ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <SectionTitle>BUDGET SPOTLIGHT</SectionTitle>
+              <ActionBtn
+                label="Edit"
+                icon="pencil-outline"
+                onPress={() => router.push('/app/budgets')}
               />
             </View>
-            <Pressable
-              onPress={() => setFiltersExpanded((v) => !v)}
-              style={({ pressed }) => [styles.filtersChevBtn, pressed && { opacity: 0.8 }]}
-              accessibilityRole="button"
-              accessibilityLabel={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
-            >
-              <Text style={styles.filtersChev}>Advanced {filtersExpanded ? '▼' : '▶'}</Text>
-            </Pressable>
-          </View>
-
-          {filtersExpanded ? (
-            <>
-              <View style={styles.filterGroup}>
-                <Text style={styles.inputLabel}>Date</Text>
-                <View style={styles.chipRow}>
-                  {DATE_PRESETS.map((p) => (
-                    <Chip
-                      key={p.key}
-                      label={p.label}
-                      selected={filters.datePreset === p.key}
-                      onPress={() => setPreset(p.key)}
-                    />
-                  ))}
-                  {filters.datePreset === 'custom' && filters.customDateRange ? (
-                    <Text style={styles.customRangeNote}>
-                      {filters.customDateRange.start} → {filters.customDateRange.end}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.filterGroupSpaced}>
-                <Text style={styles.inputLabel}>Account</Text>
-                <View style={styles.chipRow}>
-                  <Chip
-                    label="All"
-                    selected={filters.accountId === 'all'}
-                    onPress={() => setFilters((f) => ({ ...f, accountId: 'all' }))}
-                  />
-                  {accountOptions.map((a) => (
-                    <Chip
-                      key={a.id}
-                      label={a.label}
-                      selected={filters.accountId === a.id}
-                      onPress={() => setFilters((f) => ({ ...f, accountId: a.id }))}
-                    />
-                  ))}
-                </View>
-              </View>
-              <View style={styles.filterGroupSpaced}>
-                <Text style={styles.inputLabel}>Category</Text>
-                <View style={styles.chipRow}>
-                  <Chip
-                    label="All"
-                    selected={filters.category === 'all'}
-                    onPress={() => setFilters((f) => ({ ...f, category: 'all' }))}
-                  />
-                  <Chip
-                    label="None"
-                    selected={filters.category === '__none__'}
-                    onPress={() => setFilters((f) => ({ ...f, category: '__none__' }))}
-                  />
-                  {categoryRows.map((c) => (
-                    <Chip
-                      key={c.id}
-                      label={c.label}
-                      selected={filters.category === c.label}
-                      onPress={() => setFilters((f) => ({ ...f, category: c.label }))}
-                    />
-                  ))}
-                </View>
-              </View>
-              <View style={styles.filterGroupSpaced}>
-                <Text style={styles.inputLabel}>Flow</Text>
-                <View style={styles.chipRow}>
-                  {(
-                    [
-                      ['all', 'All'],
-                      ['in', 'In'],
-                      ['out', 'Out'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <Chip
-                      key={key}
-                      label={label}
-                      selected={filters.cashFlow === key}
-                      onPress={() => setFilters((f) => ({ ...f, cashFlow: key }))}
-                    />
-                  ))}
-                </View>
-              </View>
-            </>
-          ) : null}
-        </View>
-      </View>
-    ),
-    [
-      accountOptions, accordionOpen, balanceSummary, categoryRows,
-      filters, filtersExpanded, onSearchIconPress, showSearch,
-    ],
-  )
-
-  return (
-    <View style={styles.screen}>
-      <View style={[styles.topbar, { paddingTop: insets.top + 10 }]}>
-        <Text style={styles.topbarTitle} numberOfLines={1}>
-          Home
-        </Text>
-        <Text style={styles.topbarSub} numberOfLines={1}>
-          Last sync: {formatLastSyncShort(lastSync)}
-        </Text>
-      </View>
-
-      <View style={styles.body}>
-        <View style={styles.listWrap}>
-          {refreshing || isLoading ? (
-            <FlashList
-              data={[]}
-              renderItem={() => null}
-              ListHeaderComponent={
-                <>
-                  {renderListHeader()}
-                  <SkeletonList count={10} />
-                </>
-              }
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-              }
-              contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
-              showsVerticalScrollIndicator={false}
-            />
-          ) : (
-            <FlashList
-              ref={listRef}
-              data={rows}
-              renderItem={renderItem}
-              keyExtractor={(item) => item.id}
-              getItemType={(item) => item.type}
-              stickyHeaderIndices={[]}
-              showsVerticalScrollIndicator={false}
-              extraData={extraData}
-              ListHeaderComponent={renderListHeader}
-              ListEmptyComponent={
-                items.length === 0 ? (
-                  <EmptyState
-                    variant="transactions"
-                    title="No transactions yet"
-                    subtitle="Add one manually or sync a bank account."
-                  />
-                ) : (
-                  <View style={styles.emptyFiltered}>
-                    <Text style={styles.empty}>No transactions match these filters.</Text>
+            <View style={styles.budgetCard}>
+              {/* Monthly cap row — always first */}
+              {capSpotlight != null ? (() => {
+                const pctLabel = Math.round(capSpotlight.pct * 100)
+                const barColor = capSpotlight.pct >= 1 ? '#F87171' : capSpotlight.pct >= 0.8 ? '#FBBF24' : '#4ADE80'
+                return (
+                  <View style={[styles.budgetRow, styles.capRow]}>
+                    <View style={styles.budgetRowTop}>
+                      <View style={styles.capLabelRow}>
+                        <Ionicons name="wallet-outline" size={12} color="#666666" />
+                        <Text style={[styles.budgetCat, styles.capLabel]}>MONTHLY CAP</Text>
+                      </View>
+                      <Text style={[styles.budgetPct, { color: barColor }]}>{pctLabel}%</Text>
+                    </View>
+                    <View style={styles.budgetBarBg}>
+                      <View style={[styles.budgetBarFill, { width: `${Math.min(100, pctLabel)}%`, backgroundColor: barColor }]} />
+                    </View>
+                    <View style={styles.budgetAmtRow}>
+                      <Text style={styles.budgetSpent}>{fmtCurrency(capSpotlight.spent)} spent</Text>
+                      <Text style={styles.budgetLimit}>of {fmtCurrency(capSpotlight.limit)}</Text>
+                    </View>
                   </View>
                 )
-              }
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-              }
-              contentContainerStyle={[styles.listContent, { paddingBottom: listContentBottomPad }]}
-              onScroll={onListScroll}
-              scrollEventThrottle={16}
-              onLayout={onListLayout}
-              onContentSizeChange={onListContentSizeChange}
-            />
-          )}
-        </View>
-      </View>
+              })() : null}
 
-      <AddTransactionBottomSheet ref={addRef} />
-
-      <AllocationBottomSheet
-        ref={allocRef}
-        transactionId={allocTxId}
-        onDismiss={onAllocDismiss}
-      />
-
-      <EditTransactionBottomSheet
-        ref={editRef}
-        transactionId={editTxId}
-        onDismiss={onEditDismiss}
-      />
-
-      <Modal visible={showCustomDate} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Custom date range</Text>
-            <DateInput value={customStart} onChange={setCustomStart} placeholder="Start date" style={styles.inputField} />
-            <DateInput value={customEnd} onChange={setCustomEnd} placeholder="End date" style={styles.inputField} />
-            <View style={styles.modalRow}>
-              <Pressable
-                onPress={() => setShowCustomDate(false)}
-                style={({ pressed }) => [styles.modalBtn, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={styles.modalBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setFilters((f) => ({
-                    ...f,
-                    datePreset: 'custom',
-                    customDateRange: { start: customStart.trim(), end: customEnd.trim() },
-                  }))
-                  setShowCustomDate(false)
-                }}
-                style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={styles.modalBtnText}>Apply</Text>
-              </Pressable>
+              {/* Category budget rows */}
+              {budgetSpotlight.map((b, i) => {
+                const pctLabel = Math.round(b.pct * 100)
+                const barColor = b.pct >= 1 ? '#F87171' : b.pct >= 0.8 ? '#FBBF24' : '#4ADE80'
+                const hasBorder = capSpotlight != null || i > 0
+                return (
+                  <View key={`${b.category}-${i}`} style={[styles.budgetRow, hasBorder && styles.budgetRowBorder]}>
+                    <View style={styles.budgetRowTop}>
+                      <Text style={styles.budgetCat} numberOfLines={1}>{b.category}</Text>
+                      <Text style={[styles.budgetPct, { color: barColor }]}>{pctLabel}%</Text>
+                    </View>
+                    <View style={styles.budgetBarBg}>
+                      <View style={[styles.budgetBarFill, { width: `${Math.min(100, pctLabel)}%`, backgroundColor: barColor }]} />
+                    </View>
+                    <View style={styles.budgetAmtRow}>
+                      <Text style={styles.budgetSpent}>{fmtCurrency(b.spent)} spent</Text>
+                      <Text style={styles.budgetLimit}>of {fmtCurrency(b.limit)}</Text>
+                    </View>
+                  </View>
+                )
+              })}
             </View>
           </View>
+        ) : null}
+
+        {/* ── 4. Upcoming Bills ──────────────────────────────── */}
+        {upcomingBills.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>UPCOMING BILLS</SectionTitle>
+            <View style={styles.upcomingCard}>
+              {upcomingBills.map((bill, i) => (
+                <View key={bill.ruleId} style={[styles.upcomingRow, i > 0 && styles.upcomingRowBorder]}>
+                  <View style={[
+                    styles.upcomingDueBadge,
+                    bill.daysUntilDue === 0 ? { backgroundColor: '#F87171' }
+                      : bill.daysUntilDue <= 3 ? { backgroundColor: '#FBBF24' }
+                      : { backgroundColor: '#D1D5DB' },
+                  ]}>
+                    <Text style={styles.upcomingDueText}>
+                      {bill.daysUntilDue === 0 ? 'TODAY'
+                        : bill.daysUntilDue === 1 ? 'TMRW'
+                        : `${bill.daysUntilDue}D`}
+                    </Text>
+                  </View>
+                  <View style={styles.upcomingMid}>
+                    <Text style={styles.upcomingDesc} numberOfLines={1}>{bill.description}</Text>
+                    {bill.category ? <Text style={styles.upcomingCat}>{bill.category}</Text> : null}
+                  </View>
+                  <Text style={[
+                    styles.upcomingAmt,
+                    bill.amount < 0 ? { color: NEO.creditRed } : { color: NEO.incomeGreen },
+                  ]}>
+                    {bill.amount < 0 ? '-' : '+'}{fmtCurrency(Math.abs(bill.amount))}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {/* ── 5. Recent Activity ────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <SectionTitle>RECENT ACTIVITY</SectionTitle>
+            <ActionBtn
+              label="View all"
+              icon="arrow-forward"
+              onPress={() => router.push('/app/all-transactions')}
+            />
+          </View>
+
+          {recentTx.length === 0 ? (
+            <View style={styles.recentCard}>
+              <Text style={styles.emptyText}>No transactions yet.</Text>
+              <Pressable
+                onPress={() => router.push('/app/all-transactions')}
+                style={{ marginTop: 10, alignSelf: 'flex-start' }}
+              >
+                {({ pressed }) => (
+                  <View style={[styles.addFirstBtn, pressed && { opacity: 0.75 }]} pointerEvents="none">
+                    <Text style={styles.addFirstBtnText}>Add transaction</Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.recentCard}>
+              {recentTx.map((tx, i) => {
+                const isIncome = tx.amount > 0
+                const catColor = tx.category ? (categoryColorMap.get(tx.category) ?? null) : null
+                const borderColor = catColor ?? (isIncome ? NEO.yellow : NEO.ink)
+                const acct = accountMap.get(tx.account_id)
+                const acctLabel = tx.source === 'bank'
+                  ? [acct?.institution, acct?.name ?? tx.account_label].filter(Boolean).join(' · ')
+                  : (acct?.name ?? tx.account_label ?? null)
+                return (
+                  <View
+                    key={tx.id ?? String(i)}
+                    style={[styles.recentRow, i > 0 && styles.recentRowBorder, { borderLeftColor: borderColor }]}
+                  >
+                    <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                      <Text style={styles.recentDesc} numberOfLines={1}>{tx.description}</Text>
+                      <Text style={styles.recentMeta} numberOfLines={1}>
+                        {tx.effective_date ?? tx.date}
+                        {acctLabel ? ` · ${acctLabel}` : ''}
+                        {tx.category ? ` · ${tx.category}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[
+                      styles.recentAmt,
+                      tx.my_share != null ? { color: NEO.creditRed }
+                        : isIncome ? { color: NEO.incomeGreen }
+                        : tx.amount < 0 ? { color: NEO.creditRed } : undefined,
+                    ]}>
+                      {tx.my_share != null ? formatTxMoney(tx.my_share) : formatTxMoney(tx.amount)}
+                    </Text>
+                  </View>
+                )
+              })}
+
+              {/* View all button */}
+              <Pressable
+                onPress={() => router.push('/app/all-transactions')}
+                style={{ marginTop: 10 }}
+              >
+                {({ pressed }) => (
+                  <View style={[styles.viewAllBtn, pressed && styles.viewAllBtnPressed]} pointerEvents="none">
+                    <Text style={styles.viewAllBtnText}>VIEW ALL TRANSACTIONS</Text>
+                    <Ionicons name="arrow-forward" size={14} color={NEO.yellow} />
+                  </View>
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
-      </Modal>
+
+        {/* ── 6. Quick Actions ──────────────────────────────── */}
+        <View style={styles.section}>
+          <SectionTitle>QUICK ACTIONS</SectionTitle>
+          <View style={styles.quickActions}>
+            <Pressable style={{ flex: 1 }} onPress={() => router.push('/app/all-transactions')}>
+              {({ pressed }) => (
+                <View style={[styles.quickBtn, pressed && styles.quickBtnPressed]} pointerEvents="none">
+                  <Ionicons name="add-circle-outline" size={24} color={NEO.ink} style={styles.quickBtnIcon} />
+                  <Text style={styles.quickBtnLabel}>Add{'\n'}Transaction</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable style={{ flex: 1 }} onPress={() => router.push('/app/budgets')}>
+              {({ pressed }) => (
+                <View style={[styles.quickBtn, pressed && styles.quickBtnPressed]} pointerEvents="none">
+                  <Ionicons name="wallet-outline" size={24} color={NEO.ink} style={styles.quickBtnIcon} />
+                  <Text style={styles.quickBtnLabel}>Manage{'\n'}Budgets</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable style={{ flex: 1 }} onPress={() => router.push('/app/categories')}>
+              {({ pressed }) => (
+                <View style={[styles.quickBtn, pressed && styles.quickBtnPressed]} pointerEvents="none">
+                  <Ionicons name="pricetag-outline" size={24} color={NEO.ink} style={styles.quickBtnIcon} />
+                  <Text style={styles.quickBtnLabel}>Edit{'\n'}Categories</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable style={{ flex: 1 }} onPress={() => router.push('/app/alerts')}>
+              {({ pressed }) => (
+                <View style={[styles.quickBtn, pressed && styles.quickBtnPressed]} pointerEvents="none">
+                  <Ionicons name="notifications-outline" size={24} color={NEO.ink} style={styles.quickBtnIcon} />
+                  <Text style={styles.quickBtnLabel}>Budget{'\n'}Alerts</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+        </View>
+
+      </ScrollView>
     </View>
   )
 }
 
-function Chip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string
-  selected: boolean
-  onPress: () => void
-}) {
-  return (
-    <Pressable onPress={onPress} style={styles.chipPressable}>
-      {({ pressed }) => (
-        <View
-          style={[
-            styles.chip,
-            selected && styles.chipOn,
-            pressed && styles.chipPressed,
-          ]}
-          pointerEvents="none"
-        >
-          <Text style={styles.chipText} numberOfLines={1}>
-            {label}
-          </Text>
-        </View>
-      )}
-    </Pressable>
-  )
-}
+// ── Styles ─────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: NEO.cream,
-  },
+  screen: { flex: 1, backgroundColor: NEO.cream },
+
   topbar: {
     backgroundColor: NEO.ink,
     paddingHorizontal: 14,
-    paddingBottom: 8,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   topbarTitle: {
     fontFamily: NEO_MONO,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: Platform.OS === 'ios' ? '800' : '700',
     color: NEO.cream,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    flexShrink: 1,
-    minWidth: 0,
   },
-  topbarSub: {
-    fontFamily: NEO_MONO,
-    fontSize: 12,
-    color: NEO.sub,
-    letterSpacing: 0.36,
+  // Sync timestamp badge shown on the right of the header
+  syncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     flexShrink: 0,
-    marginLeft: 'auto',
-    maxWidth: '46%',
   },
-  body: {
-    flex: 1,
-    paddingBottom: 4,
-    gap: 10,
-  },
-  listWrap: {
-    flex: 1,
-    minHeight: 120,
-  },
-  listContent: {
-    gap: 0,
+  syncBadgeText: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    color: NEO.sub,
+    letterSpacing: 0.3,
   },
 
-  // ── Balance Summary Section ──────────────────────────
-  summarySection: {
+  scroll: {
+    paddingTop: 0,
+  },
+
+  section: {
+    paddingHorizontal: 14,
+    marginBottom: 6,
+  },
+  sectionTitle: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    color: '#888888',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+
+  // ── Neo-brutalist action button (Edit, View all, etc.) ───────────────
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 2,
+    borderColor: NEO.ink,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: NEO.cream,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 2,
+    marginTop: 14,
+  },
+  actionBtnPressed: {
+    transform: [{ translateX: 2 }, { translateY: 2 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  actionBtnText: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    fontWeight: '800',
+    color: NEO.ink,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // ── Balance Section ──────────────────────────────────
+  balanceSection: {
     backgroundColor: '#000000',
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 6,
-    marginBottom: 10,
+    paddingBottom: 10,
+    marginBottom: 6,
   },
-  summaryHeaderRow: {
+  balanceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  summaryNetBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  summaryNetLabel: {
+  balanceLabel: {
     fontFamily: NEO_MONO,
     fontSize: 11,
     fontWeight: '700',
@@ -1086,85 +758,60 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 2,
   },
-  summaryNetAmount: {
+  balanceAmount: {
     fontFamily: NEO_MONO,
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: Platform.OS === 'ios' ? '800' : '700',
     color: '#ffffff',
     letterSpacing: 0.5,
   },
-  searchIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: NEO.yellow,
-    borderWidth: 3,
-    borderColor: NEO.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-    shadowColor: NEO.ink,
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 4,
-  },
-  summaryTotalsRow: {
+  balanceTotalsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  summaryTotalItem: {
-    flex: 1,
-  },
-  summaryTotalLabel: {
+  balanceTotalLabel: {
     fontFamily: NEO_MONO,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: '#666666',
     letterSpacing: 1,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
-  summaryDepositAmt: {
+  depositsAmt: {
     fontFamily: NEO_MONO,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: '#4ADE80',
     letterSpacing: 0.3,
   },
-  summaryTotalDivider: {
+  balanceDivider: {
     width: 1,
     height: 32,
     backgroundColor: '#333333',
-    marginHorizontal: 12,
+    marginHorizontal: 16,
   },
-  summaryCreditAmt: {
+  creditAmt: {
     fontFamily: NEO_MONO,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: '#F87171',
     letterSpacing: 0.3,
   },
-  accordionToggleBtn: {
+  accordionBtn: {
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 18,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
     borderRadius: 18,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: NEO.cream,
     backgroundColor: NEO.ink,
-    marginBottom: 4,
-    shadowColor: NEO.cream,
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 0,
-    elevation: 4,
   },
-  accordionToggleText: {
+  accordionBtnText: {
     fontFamily: NEO_MONO,
     fontSize: 11,
     fontWeight: '800',
@@ -1172,52 +819,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
-  accountCardsScroll: {
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  accountCardsContent: {
-    paddingHorizontal: 0,
-    gap: 10,
-    paddingBottom: 8,
-  },
-  accountCardsEmpty: {
-    width: 160,
-    height: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#333333',
-    borderStyle: 'dashed',
-  },
-  accountCardsEmptyText: {
-    fontFamily: NEO_MONO,
-    fontSize: 11,
-    color: '#555555',
-  },
 
-  // ── Account Card ─────────────────────────────────────
+  // ── Account cards ────────────────────────────────────
   accountCard: {
-    width: 168,
+    width: 160,
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
     justifyContent: 'space-between',
-    minHeight: 104,
+    minHeight: 96,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 5,
   },
-  accountCardTypeChip: {
+  accountCardChip: {
     alignSelf: 'flex-start',
     backgroundColor: 'rgba(0,0,0,0.25)',
     borderRadius: 4,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 2,
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  accountCardTypeText: {
+  accountCardChipText: {
     fontFamily: NEO_MONO,
     fontSize: 9,
     fontWeight: '800',
@@ -1225,7 +849,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  accountCardInstitution: {
+  accountCardInst: {
     fontFamily: NEO_MONO,
     fontSize: 10,
     color: 'rgba(255,255,255,0.65)',
@@ -1237,145 +861,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff',
     flex: 1,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   accountCardBalance: {
     fontFamily: NEO_MONO,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#ffffff',
-    letterSpacing: 0.3,
-  },
-  accountCardBalanceNeg: {
-    color: '#FFD0D0',
-  },
-
-  // ── Search / Filter ───────────────────────────────────
-  card: {
-    borderWidth: 3,
-    borderColor: NEO.ink,
-    backgroundColor: NEO.cream,
-    borderRadius: 0,
-    padding: 10,
-    marginBottom: 10,
-    marginHorizontal: 12,
-    shadowColor: NEO.ink,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 3,
-  },
-  cardHidden: {
-    height: 0,
-    overflow: 'hidden',
-    marginHorizontal: 12,
-  },
-  inputLabel: {
-    fontFamily: NEO_MONO,
     fontSize: 15,
     fontWeight: '800',
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
-    color: NEO.ink,
-    marginBottom: 2,
+    color: '#ffffff',
   },
-  inputField: {
-    borderWidth: 2,
-    borderColor: NEO.ink,
-    backgroundColor: NEO.cream,
-    borderRadius: 0,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    fontFamily: NEO_MONO,
-    fontSize: 12,
-    color: '#444444',
-    marginBottom: 6,
-  },
-  filterGroup: {},
-  filterGroupSpaced: {
-    marginTop: 6,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
-  },
-  chipPressable: {
-    borderRadius: 0,
-  },
-  chip: {
-    borderWidth: 2,
-    borderColor: NEO.ink,
-    borderRadius: 0,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    backgroundColor: NEO.cream,
-    margin: 2,
-    maxWidth: 180,
-  },
-  chipOn: {
-    backgroundColor: NEO.yellow,
-  },
-  chipPressed: {
-    opacity: 0.88,
-  },
-  chipText: {
-    fontFamily: NEO_MONO,
-    fontSize: 12,
-    fontWeight: '800',
-    color: NEO.ink,
-  },
-  searchAccordionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  searchCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  filtersChevBtn: {
-    width: 28,
-    height: 28,
-    borderWidth: 2,
-    borderColor: NEO.ink,
-    backgroundColor: NEO.cream,
+  noAccountsCard: {
+    width: 150,
+    height: 90,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderStyle: 'dashed',
+    borderRadius: 8,
   },
-  filtersChev: {
+  noAccountsText: {
     fontFamily: NEO_MONO,
-    fontSize: 14,
-    fontWeight: '900',
-    color: NEO.ink,
-    lineHeight: 14,
-    padding: 5,
-    borderWidth: 2,
-    borderColor: NEO.ink,
-    marginBottom: 6,
-  },
-  customRangeNote: {
-    fontFamily: NEO_MONO,
-    fontSize: 9,
-    fontWeight: '700',
-    color: NEO.ink,
-    opacity: 0.7,
-    marginLeft: 6,
-    marginTop: 4,
+    fontSize: 11,
+    color: '#555555',
   },
 
-  // ── Modal ─────────────────────────────────────────────
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
+  // ── This Month ────────────────────────────────────────
+  thisMonthCard: {
     borderWidth: 3,
     borderColor: NEO.ink,
     backgroundColor: NEO.cream,
@@ -1386,174 +897,294 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 3,
   },
-  modalTitle: {
-    fontFamily: NEO_MONO,
-    fontSize: 12,
-    fontWeight: '900',
-    color: NEO.ink,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  modalRow: {
+  thisMonthRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
-  modalBtn: {
-    flex: 1,
-    backgroundColor: NEO.cream,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+  thisMonthStat: { flex: 1 },
+  thisMonthDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#DDDDDD',
+    marginHorizontal: 10,
+    alignSelf: 'center',
   },
-  modalBtnPrimary: {
-    backgroundColor: NEO.yellow,
-  },
-  modalBtnText: {
+  thisMonthStatLabel: {
     fontFamily: NEO_MONO,
-    fontSize: 12,
-    fontWeight: '900',
-    color: NEO.ink,
-    letterSpacing: 0.55,
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#888888',
+    letterSpacing: 1,
     textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  thisMonthStatValue: {
+    fontFamily: NEO_MONO,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  monthBar: {
+    height: 6,
+    flexDirection: 'row',
+    borderRadius: 3,
+    overflow: 'hidden',
+    backgroundColor: '#E8E8E0',
+  },
+  monthBarIncome: {
+    backgroundColor: '#4ADE80',
+    borderRadius: 3,
+  },
+  monthBarSpend: {
+    backgroundColor: '#F87171',
+    borderRadius: 3,
+  },
+
+  // ── Budget Spotlight ──────────────────────────────────
+  budgetCard: {
     borderWidth: 3,
     borderColor: NEO.ink,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
+    backgroundColor: NEO.cream,
+    padding: 12,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
-
-  // ── Month accordion ───────────────────────────────────
-  monthAccordionRow: {
-    display: 'flex',
-    flexWrap: 'nowrap',
+  budgetRow: { paddingVertical: 8 },
+  budgetRowBorder: { borderTopWidth: 1, borderTopColor: '#E8E8E0' },
+  capRow: { backgroundColor: '#F5F5EE' },
+  capLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 },
+  capLabel: { fontSize: 11, color: '#666666', fontWeight: '700' },
+  budgetRowTop: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 2,
-    marginBottom: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    width: '100%',
-  },
-  monthAccordionPressable: {
-    width: '100%',
-  },
-  monthAccordionRowPressed: {
-    opacity: 0.75,
-  },
-  monthLeft: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 4,
+  },
+  budgetCat: {
+    fontFamily: NEO_MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: NEO.ink,
     flex: 1,
-    minWidth: 0,
-    width: '45%',
+    marginRight: 6,
   },
-  monthSectionLabel: {
+  budgetPct: {
     fontFamily: NEO_MONO,
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '800',
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
-    color: NEO.ink,
-    flexShrink: 1,
-  },
-  monthAccordionChev: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: NEO.ink,
-    opacity: 0.55,
-  },
-  monthAccordionChevTop: {
-    opacity: 0.35,
-  },
-  monthCount: {
-    fontFamily: NEO_MONO,
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
-    color: NEO.ink,
-    opacity: 0.7,
     flexShrink: 0,
-    marginLeft: 1,
-    textAlign: 'right',
-    width: '45%',
   },
+  budgetBarBg: {
+    height: 8,
+    backgroundColor: '#E8E8E0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#D4D4C4',
+  },
+  budgetBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  budgetAmtRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  budgetSpent: { fontFamily: NEO_MONO, fontSize: 10, color: '#666666' },
+  budgetLimit: { fontFamily: NEO_MONO, fontSize: 10, color: '#888888' },
 
-  // ── Transaction rows ──────────────────────────────────
-  txRow: {
-    borderWidth: 2,
+  // ── Upcoming Bills ────────────────────────────────────
+  upcomingCard: {
+    borderWidth: 3,
     borderColor: NEO.ink,
     backgroundColor: NEO.cream,
-    borderRadius: 0,
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-    marginBottom: 10,
-    marginHorizontal: 12,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
   },
-  txRowTop: {
+  upcomingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  txDesc: {
-    flex: 1,
+  upcomingRowBorder: { borderTopWidth: 1, borderTopColor: '#E8E8E0' },
+  upcomingDueBadge: {
+    width: 40,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  upcomingDueText: {
     fontFamily: NEO_MONO,
-    fontSize: 15,
+    fontSize: 9,
+    fontWeight: '800',
+    color: NEO.ink,
+    letterSpacing: 0.5,
+  },
+  upcomingMid: { flex: 1, minWidth: 0 },
+  upcomingDesc: {
+    fontFamily: NEO_MONO,
+    fontSize: 13,
     fontWeight: '800',
     color: NEO.ink,
   },
-  txPendingTag: {
+  upcomingCat: {
     fontFamily: NEO_MONO,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#CC2222',
-  },
-  txAmountCol: {
-    alignItems: 'flex-end',
-  },
-  txAmount: {
-    fontFamily: NEO_MONO,
-    fontSize: 15,
-    fontWeight: '800',
-    color: NEO.ink,
-  },
-  txAmountIncome: {
-    color: NEO.incomeGreen,
-  },
-  txAmountExpense: {
-    color: '#CC2222',
-  },
-  txShare: {
-    fontFamily: NEO_MONO,
-    fontSize: 11,
-    fontWeight: '700',
-    color: NEO.sub,
+    fontSize: 10,
+    color: '#888888',
     marginTop: 1,
   },
-  txMeta: {
-    marginTop: 3,
+  upcomingAmt: {
     fontFamily: NEO_MONO,
-    fontSize: 12,
-    color: '#666666',
+    fontSize: 13,
+    fontWeight: '800',
+    flexShrink: 0,
   },
-  skeletonBar: {
-    backgroundColor: '#D4D4C4',
-    borderRadius: 2,
+
+  // ── Recent Activity ───────────────────────────────────
+  recentCard: {
+    borderWidth: 3,
+    borderColor: NEO.ink,
+    backgroundColor: NEO.cream,
+    padding: 0,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+    overflow: 'hidden',
   },
-  empty: {
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    paddingRight: 12,
+    paddingLeft: 10,
+    borderLeftWidth: 4,
+  },
+  recentRowBorder: { borderTopWidth: 1, borderTopColor: '#E8E8E0' },
+  recentDesc: {
     fontFamily: NEO_MONO,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '800',
     color: NEO.ink,
-    opacity: 0.65,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
   },
-  emptyFiltered: {
-    paddingHorizontal: 4,
+  recentMeta: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    color: '#777777',
+    marginTop: 2,
+  },
+  recentAmt: {
+    fontFamily: NEO_MONO,
+    fontSize: 14,
+    fontWeight: '800',
+    color: NEO.ink,
+    flexShrink: 0,
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: NEO.ink,
+    backgroundColor: NEO.ink,
+    paddingVertical: 10,
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  viewAllBtnPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  viewAllBtnText: {
+    fontFamily: NEO_MONO,
+    fontSize: 12,
+    fontWeight: '800',
+    color: NEO.yellow,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+
+  // ── Quick Actions ─────────────────────────────────────
+  quickActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickBtn: {
+    borderWidth: 3,
+    borderColor: NEO.ink,
+    backgroundColor: NEO.cream,
+    paddingVertical: 12,
+    alignItems: 'center',
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  quickBtnPressed: {
+    transform: [{ translateX: 3 }, { translateY: 3 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  quickBtnIcon: { marginBottom: 4 },
+  quickBtnLabel: {
+    fontFamily: NEO_MONO,
+    fontSize: 9,
+    fontWeight: '800',
+    color: NEO.ink,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // ── Misc ─────────────────────────────────────────────
+  emptyText: {
+    fontFamily: NEO_MONO,
+    fontSize: 13,
+    color: '#888888',
+    padding: 12,
+  },
+  addFirstBtn: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: NEO.ink,
+    backgroundColor: NEO.yellow,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    shadowColor: NEO.ink,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 3,
+  },
+  addFirstBtnText: {
+    fontFamily: NEO_MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: NEO.ink,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
 })

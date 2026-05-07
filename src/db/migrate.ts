@@ -1,4 +1,7 @@
-import { type SQLiteDatabase } from 'expo-sqlite'
+/** Minimal interface satisfied by op-sqlite's connection object. */
+interface DbRunner {
+  executeAsync(sql: string): Promise<unknown>
+}
 
 const MIGRATIONS = [
   // transactions
@@ -95,61 +98,60 @@ const MIGRATIONS = [
   );`,
 ] as const
 
-export async function runMigrations(db: SQLiteDatabase): Promise<void> {
-  // expo-sqlite (SDK 54) supports async execAsync APIs.
+export async function runMigrations(db: DbRunner): Promise<void> {
   for (const sql of MIGRATIONS) {
-    await db.execAsync(sql)
+    await db.executeAsync(sql)
   }
   try {
-    await db.execAsync(
+    await db.executeAsync(
       'ALTER TABLE accounts ADD COLUMN include_in_insights INTEGER NOT NULL DEFAULT 1',
     )
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE teller_enrollments ADD COLUMN user_id TEXT')
+    await db.executeAsync('ALTER TABLE teller_enrollments ADD COLUMN user_id TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE teller_enrollments ADD COLUMN status TEXT')
+    await db.executeAsync('ALTER TABLE teller_enrollments ADD COLUMN status TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE teller_enrollments ADD COLUMN last_sync_at TEXT')
+    await db.executeAsync('ALTER TABLE teller_enrollments ADD COLUMN last_sync_at TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE teller_enrollments ADD COLUMN last_error TEXT')
+    await db.executeAsync('ALTER TABLE teller_enrollments ADD COLUMN last_error TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE transactions ADD COLUMN recurring_rule_id TEXT')
+    await db.executeAsync('ALTER TABLE transactions ADD COLUMN recurring_rule_id TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN until_ym TEXT')
+    await db.executeAsync('ALTER TABLE recurring_rules ADD COLUMN until_ym TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN last_generated_date TEXT')
+    await db.executeAsync('ALTER TABLE recurring_rules ADD COLUMN last_generated_date TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE recurring_rules ADD COLUMN until_date TEXT')
+    await db.executeAsync('ALTER TABLE recurring_rules ADD COLUMN until_date TEXT')
   } catch {
     /* column already exists */
   }
   // One budget row per (month, category); remove legacy duplicates (keep highest id).
   try {
-    await db.execAsync(`
+    await db.executeAsync(`
       DELETE FROM budgets WHERE EXISTS (
         SELECT 1 FROM budgets AS b2
         WHERE b2.month = budgets.month AND b2.category = budgets.category AND b2.id > budgets.id
@@ -159,21 +161,49 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
     /* ignore if budgets missing or sqlite quirk */
   }
   try {
-    await db.execAsync(
+    await db.executeAsync(
       'CREATE UNIQUE INDEX IF NOT EXISTS budgets_month_category ON budgets(month, category)',
     )
   } catch {
     /* ignore if index exists or table empty */
   }
   try {
-    await db.execAsync('ALTER TABLE accounts ADD COLUMN balance_available REAL')
+    await db.executeAsync('ALTER TABLE transactions ADD COLUMN notes TEXT')
   } catch {
     /* column already exists */
   }
   try {
-    await db.execAsync('ALTER TABLE accounts ADD COLUMN balance_ledger REAL')
+    await db.executeAsync('ALTER TABLE accounts ADD COLUMN balance_available REAL')
   } catch {
     /* column already exists */
+  }
+  try {
+    await db.executeAsync('ALTER TABLE accounts ADD COLUMN balance_ledger REAL')
+  } catch {
+    /* column already exists */
+  }
+  // trips.type — distinguishes trips from events
+  try {
+    await db.executeAsync("ALTER TABLE trips ADD COLUMN type TEXT NOT NULL DEFAULT 'trip'")
+  } catch {
+    /* column already exists */
+  }
+  // savings_goals table
+  try {
+    await db.executeAsync(`
+      CREATE TABLE IF NOT EXISTS savings_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        target_amount REAL NOT NULL,
+        current_amount REAL NOT NULL DEFAULT 0,
+        target_date TEXT,
+        color TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL
+      )
+    `)
+  } catch {
+    /* table already exists */
   }
 }
 

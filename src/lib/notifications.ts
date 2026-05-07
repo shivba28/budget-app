@@ -5,11 +5,14 @@ import {
   META_BUDGET_ALERT_SETTINGS,
   META_BUDGET_ALERT_STATE,
   META_NOTIFICATIONS_PERMISSION_ASKED,
+  META_RECURRING_REMINDERS_LAST_RUN,
 } from '@/src/db/constants'
 import * as budgetsQ from '@/src/db/queries/budgets'
 import * as categoriesQ from '@/src/db/queries/categories'
 import * as metaQ from '@/src/db/queries/appMeta'
 import * as txq from '@/src/db/queries/transactions'
+import * as recurringQ from '@/src/db/queries/recurringRules'
+import { nextOccurrenceDate, type ManualRecurrenceCadence } from './transactions/manualRecurring'
 
 type QuietHours = { startHour: number; endHour: number }
 
@@ -129,6 +132,10 @@ async function ensureAndroidChannel(): Promise<void> {
     name: 'Budget alerts',
     importance: Notifications.AndroidImportance.DEFAULT,
   })
+  await Notifications.setNotificationChannelAsync('bill-reminders', {
+    name: 'Bill reminders',
+    importance: Notifications.AndroidImportance.HIGH,
+  })
 }
 
 export async function ensureNotificationPermissionsOnce(): Promise<void> {
@@ -245,5 +252,128 @@ export async function runBudgetAlertCheck(reason: 'sync' | 'budget_change' | 'ma
   }
 
   setBudgetAlertState({ lastFired })
+}
+
+// ── Upcoming recurring bill reminders ───────────────────────────────────────
+
+function addDaysToIso(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function formatCurrency(n: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(n))
+}
+
+/**
+ * Schedule local push notifications for recurring rules whose next occurrence
+ * falls exactly 1 day from today.  Should be called once per day (e.g. after
+ * a sync or when the app comes to foreground).
+ *
+ * We gate on a "last run" meta key so we don't spam on every app launch.
+ */
+export async function scheduleRecurringBillReminders(): Promise<void> {
+  const today = todayIso()
+  const lastRun = metaQ.getMeta(META_RECURRING_REMINDERS_LAST_RUN)
+  if (lastRun === today) return // already ran today
+
+  const rules = recurringQ.listActiveRecurringRules()
+  const tomorrow = addDaysToIso(today, 1)
+
+  for (const rule of rules) {
+    // Compute the next occurrence from last_generated_date or start_date
+    const base = rule.last_generated_date ?? rule.start_date
+    const next = nextOccurrenceDate(base, rule.cadence as ManualRecurrenceCadence)
+    if (!next) continue
+    // Only notify if it lands tomorrow
+    if (next !== tomorrow) continue
+    // Skip rules that have already passed their until date
+    if (rule.until_date && tomorrow > rule.until_date) continue
+
+    const amtStr = formatCurrency(rule.amount)
+    const sign = rule.amount < 0 ? '-' : '+'
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '📅 Bill due tomorrow',
+        body: `${rule.description} · ${sign}${amtStr}`,
+        data: { type: 'bill_reminder', ruleId: rule.id, date: tomorrow },
+        ...(Platform.OS === 'android' ? { channelId: 'bill-reminders' } : {}),
+      },
+      trigger: null, // fire immediately (background-safe)
+    })
+  }
+
+  metaQ.setMeta(META_RECURRING_REMINDERS_LAST_RUN, today)
+}
+
+// ── Upcoming bills list (sync-safe, returns plain data) ──────────────────────
+
+export type UpcomingBill = {
+  ruleId: string
+  description: string
+  amount: number
+  dueDate: string  // YYYY-MM-DD
+  cadence: ManualRecurrenceCadence
+  category: string | null
+  daysUntilDue: number
+}
+
+/**
+ * Return all upcoming bill occurrences within the next `horizonDays` days
+ * (default 30), sorted by dueDate ascending.
+ */
+export function getUpcomingBills(horizonDays = 30): UpcomingBill[] {
+  const today = todayIso()
+  const cutoff = addDaysToIso(today, horizonDays)
+  const rules = recurringQ.listActiveRecurringRules()
+  const bills: UpcomingBill[] = []
+
+  for (const rule of rules) {
+    const cadence = rule.cadence as ManualRecurrenceCadence
+    // Find the next occurrence after today
+    const base = rule.last_generated_date ?? rule.start_date
+    let candidate = nextOccurrenceDate(base, cadence)
+    // The base might already be in the future (e.g. rule just created)
+    if (!candidate) continue
+
+    // If candidate is in the past, advance until it's today or later
+    let safety = 0
+    while (candidate < today && safety < 400) {
+      const n = nextOccurrenceDate(candidate, cadence)
+      if (!n) break
+      candidate = n
+      safety++
+    }
+
+    if (candidate < today || candidate > cutoff) continue
+    if (rule.until_date && candidate > rule.until_date) continue
+
+    const dueDateMs = new Date(`${candidate}T12:00:00`).getTime()
+    const todayMs = new Date(`${today}T12:00:00`).getTime()
+    const daysUntilDue = Math.round((dueDateMs - todayMs) / 86_400_000)
+
+    bills.push({
+      ruleId: rule.id,
+      description: rule.description,
+      amount: rule.amount,
+      dueDate: candidate,
+      cadence,
+      category: rule.category ?? null,
+      daysUntilDue,
+    })
+  }
+
+  return bills.sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
 }
 

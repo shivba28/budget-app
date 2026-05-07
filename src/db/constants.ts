@@ -18,3 +18,5 @@ export const META_BUDGET_ALERT_SETTINGS = 'budget_alert_settings'
 export const META_BUDGET_ALERT_STATE = 'budget_alert_state'
 /** Stored flag: permissions prompt already shown once. */
 export const META_NOTIFICATIONS_PERMISSION_ASKED = 'notifications_permission_asked'
+/** Stored JSON: last date we scheduled recurring bill reminders. */
+export const META_RECURRING_REMINDERS_LAST_RUN = 'recurring_reminders_last_run'

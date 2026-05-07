@@ -21,6 +21,12 @@ import { useSyncStore } from '../stores/syncStore'
 /** Sync if data is older than this threshold. */
 const STALE_MS = 5 * 60 * 1000 // 5 minutes
 
+/**
+ * Minimum time the Live Activity stays visible regardless of how fast the sync
+ * finishes. Keeps the Dynamic Island on screen long enough for the user to see it.
+ */
+const MIN_LIVE_ACTIVITY_MS = 1_500
+
 function getLastSyncAt(): string | null {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { getMeta } = require('../db/queries/appMeta') as typeof import('../db/queries/appMeta')
@@ -54,6 +60,8 @@ export async function triggerManualSync(): Promise<void> {
   const liveActivityStarted = SyncActivityModule.startSyncActivity(total || 1)
   setLiveActivityActive(liveActivityStarted)
 
+  const syncStartAt = Date.now()
+
   let done = 0
   try {
     const { syncTellerAllAccounts } = await import('./teller/sync')
@@ -61,6 +69,12 @@ export async function triggerManualSync(): Promise<void> {
       SyncActivityModule.updateSyncActivity(++done)
     })
     const lastAt = getLastSyncAt() ?? new Date().toISOString()
+    // Keep the Live Activity visible for at least MIN_LIVE_ACTIVITY_MS so the
+    // Dynamic Island has time to animate in even when syncs complete quickly.
+    const elapsed = Date.now() - syncStartAt
+    if (elapsed < MIN_LIVE_ACTIVITY_MS) {
+      await new Promise<void>((r) => setTimeout(r, MIN_LIVE_ACTIVITY_MS - elapsed))
+    }
     SyncActivityModule.endSyncActivity()
     setLiveActivityActive(false)
     setSyncDone(lastAt)
@@ -71,6 +85,33 @@ export async function triggerManualSync(): Promise<void> {
   } finally {
     _syncing = false
   }
+}
+
+/**
+ * Pull-to-refresh entry point.
+ *
+ * If a sync is already running (e.g. startup auto-sync), its Live Activity is
+ * already on screen — we wait for it to finish and return, avoiding a redundant
+ * second sync that would complete too fast for the Dynamic Island to be seen.
+ *
+ * If no sync is running, we trigger one normally (with the MIN_LIVE_ACTIVITY_MS
+ * hold so it's always visible long enough).
+ */
+export async function triggerManualSyncNow(): Promise<void> {
+  if (_syncing) {
+    // A Live Activity is already showing for the in-progress sync. Just wait
+    // for it to complete — the user will see that activity.
+    await new Promise<void>((resolve) => {
+      const deadline = Date.now() + 15_000
+      const check = () => {
+        if (!_syncing || Date.now() >= deadline) return resolve()
+        setTimeout(check, 200)
+      }
+      check()
+    })
+    return
+  }
+  await triggerManualSync()
 }
 
 export function startForegroundSync(): void {

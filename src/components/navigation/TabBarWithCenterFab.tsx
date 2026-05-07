@@ -1,4 +1,3 @@
-import { useUiSignals } from '@/src/stores/uiSignals'
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -12,8 +11,8 @@ import Animated, {
 } from 'react-native-reanimated'
 import { createAnimatedComponent } from 'react-native-reanimated'
 
-// Indices of tabs that show the FAB
-const FAB_INDICES = new Set([0, 2]) // 0=transactions, 2=trips
+// No tab-level FAB — each inner screen (all-transactions, all-trips, all-events, all-savings-goals) has its own FAB
+const FAB_INDICES = new Set<number>([])
 
 const FAB = {
   ink: '#111111',
@@ -28,7 +27,7 @@ const BAR_HEIGHT = 50
 const TAB_ICONS: Array<keyof typeof Ionicons.glyphMap> = [
   'home',
   'pie-chart',
-  'airplane',
+  'map-outline',
   'settings',
 ]
 
@@ -125,19 +124,16 @@ function TabIcon({ index, active }: { index: number; active: boolean }) {
 }
 
 export function TabBarWithCenterFab({ currentIndex, onTabPress }: Props) {
-  const triggerAddTrip = useUiSignals((s) => s.triggerAddTrip)
-  const triggerAddTransaction = useUiSignals((s) => s.triggerAddTransaction)
   const insets = useSafeAreaInsets()
 
   const showFab = FAB_INDICES.has(currentIndex)
   const bottomPad = Math.max(insets.bottom, 10)
 
   const onFabPress = () => {
-    if (currentIndex === 0) triggerAddTransaction()
-    else if (currentIndex === 2) triggerAddTrip()
+    // No-op: all FABs live on inner screens now
   }
 
-  const a11yLabel = currentIndex === 0 ? 'Add transaction' : 'Add trip or event'
+  const a11yLabel = 'Add'
 
   // Build the slot list: 4 tab icons with a centre placeholder when FAB is shown
   const slots = showFab

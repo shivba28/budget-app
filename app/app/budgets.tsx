@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
+  Animated,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -10,8 +12,10 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Ionicons } from '@expo/vector-icons'
 
 import { useBudgetsStore } from '@/src/stores/budgetsStore'
 import { useCategoriesStore } from '@/src/stores/categoriesStore'
@@ -21,11 +25,164 @@ const INK = '#111111'
 const MUTED = '#E8E8E0'
 const YELLOW = '#F5C842'
 const RED = '#FF5E5E'
+const GREEN = '#4ADE80'
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
+
+// ── helpers ────────────────────────────────────────────────────────────────
+
+function currentYearMonth(): string {
+  return new Date().toISOString().slice(0, 7)
+}
+
+function parseYearMonth(ym: string): Date {
+  const [y, m] = ym.split('-').map(Number)
+  if (!y || !m) return new Date()
+  return new Date(y, m - 1, 1)
+}
+
+function toYearMonth(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+function formatMonthLabel(ym: string): string {
+  if (!ym || ym === 'default') return 'DEFAULT'
+  const [y, m] = ym.split('-').map(Number)
+  if (!y || !m) return ym.toUpperCase()
+  return new Date(y, m - 1, 1)
+    .toLocaleString(undefined, { month: 'long', year: 'numeric' })
+    .toUpperCase()
+}
+
+// ── MonthPickerInput ───────────────────────────────────────────────────────
+
+function MonthPickerInput({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const isDefault = value === 'default' || value === ''
+  const pickerDate = isDefault ? new Date() : parseYearMonth(value)
+
+  const onAndroidChange = (_: unknown, selected?: Date) => {
+    setOpen(false)
+    if (selected) onChange(toYearMonth(selected))
+  }
+
+  return (
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [ss.monthField, pressed && { opacity: 0.7 }]}
+      >
+        <View style={ss.monthFieldInner}>
+          <Text style={ss.monthFieldText}>{isDefault ? 'Default' : formatMonthLabel(value)}</Text>
+          <Ionicons name="chevron-down" size={14} color={INK} />
+        </View>
+      </Pressable>
+
+      {Platform.OS === 'android' && open && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="date"
+          display="default"
+          themeVariant="light"
+          onChange={onAndroidChange}
+        />
+      )}
+
+      {Platform.OS !== 'android' && (
+        <Modal visible={open} transparent animationType="slide">
+          <Pressable style={ss.backdrop} onPress={() => setOpen(false)} />
+          <View style={ss.sheet}>
+            <View style={ss.sheetHeader}>
+              <Pressable onPress={() => setOpen(false)}>
+                <Text style={ss.headerBtn}>Cancel</Text>
+              </Pressable>
+              <Text style={ss.sheetTitle}>Select month</Text>
+              <Pressable onPress={() => setOpen(false)}>
+                <Text style={[ss.headerBtn, { color: YELLOW }]}>Done</Text>
+              </Pressable>
+            </View>
+
+            {/* Default option */}
+            <Pressable
+              onPress={() => { onChange('default'); setOpen(false) }}
+              style={({ pressed }) => [ss.defaultBtn, pressed && ss.defaultBtnPressed]}
+            >
+              <Ionicons name={isDefault ? 'checkmark-circle' : 'refresh-circle-outline'} size={28} color={INK} style={{ marginLeft: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={ss.defaultBtnTitle}>Use Default</Text>
+                <Text style={ss.defaultBtnSub}>Rolling template — applies to every month</Text>
+              </View>
+            </Pressable>
+
+            <View style={ss.pickerDivider} />
+            <View style={ss.pickerWrap}>
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display="spinner"
+                themeVariant="light"
+                textColor={INK}
+                onChange={(_: unknown, selected?: Date) => {
+                  if (selected) onChange(toYearMonth(selected))
+                }}
+                style={ss.picker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+    </>
+  )
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+
+function useToast() {
+  const [message, setMessage] = useState('')
+  const anim = useRef(new Animated.Value(0)).current
+
+  const show = useCallback((msg: string) => {
+    setMessage(msg)
+    anim.setValue(0)
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.delay(1400),
+      Animated.timing(anim, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => setMessage(''))
+  }, [anim])
+
+  const node = message ? (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        ss.toast,
+        {
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+        },
+      ]}
+    >
+      <Ionicons name="checkmark-circle" size={16} color={INK} />
+      <Text style={ss.toastText}>{message}</Text>
+    </Animated.View>
+  ) : null
+
+  return { show, node }
+}
+
+// ── Screen ─────────────────────────────────────────────────────────────────
 
 export default function BudgetsScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const toast = useToast()
 
   const items = useBudgetsStore((s) => s.items)
   const month = useBudgetsStore((s) => s.month)
@@ -62,15 +219,34 @@ export default function BudgetsScreen() {
     [items],
   )
 
+  // Cap is dirty if capInput differs numerically from the stored totalCap
+  const isCapDirty = useMemo(() => {
+    const t = capInput.trim()
+    if (t === '') return totalCap !== null
+    const n = Number(t)
+    if (Number.isNaN(n)) return false
+    return n !== totalCap
+  }, [capInput, totalCap])
+
+  const isMonthDirty = useMemo(() => monthDraft !== month, [monthDraft, month])
+
   const applyCap = () => {
     const t = capInput.trim()
     if (t === '') {
       setTotalCap(null)
-      return
+    } else {
+      const n = Number(t)
+      if (Number.isNaN(n)) return
+      setTotalCap(n)
     }
-    const n = Number(t)
-    if (Number.isNaN(n)) return
-    setTotalCap(n)
+    toast.show('Monthly cap saved')
+  }
+
+  const applyMonth = () => {
+    const val = monthDraft.trim() === '' ? 'default' : monthDraft
+    setMonth(val)
+    setMonthDraft(val)
+    toast.show('Month applied')
   }
 
   const startEdit = (categoryLabel: string) => {
@@ -102,6 +278,7 @@ export default function BudgetsScreen() {
     else add({ category: editingCategory, amount: a, month })
     setEditingCategory(null)
     setEditAmt('')
+    toast.show('Budget saved')
   }
 
   const onDeleteBudget = () => {
@@ -112,7 +289,7 @@ export default function BudgetsScreen() {
       setEditAmt('')
       return
     }
-    Alert.alert('Remove budget', `Clear budget for “${editingCategory}” this month?`, [
+    Alert.alert('Remove budget', `Clear budget for "${editingCategory}" this month?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -121,13 +298,11 @@ export default function BudgetsScreen() {
           remove(existing.id)
           setEditingCategory(null)
           setEditAmt('')
+          toast.show('Budget removed')
         },
       },
     ])
   }
-
-  const colorFor = (label: string): string | null =>
-    categories.find((c) => c.label === label)?.color ?? null
 
   const renderCategoryBudgetRow = (cat: (typeof categories)[number]) => {
     const label = cat.label
@@ -174,10 +349,7 @@ export default function BudgetsScreen() {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => {
-                setEditingCategory(null)
-                setEditAmt('')
-              }}
+              onPress={() => { setEditingCategory(null); setEditAmt('') }}
               style={{ flex: 1 }}
             >
               {({ pressed }) => (
@@ -203,9 +375,7 @@ export default function BudgetsScreen() {
           >
             <View style={ss.rowLeft}>
               <View style={[ss.rowSwatch, { backgroundColor: rowColor }]} />
-              <Text style={ss.rowCat} numberOfLines={1}>
-                {label}
-              </Text>
+              <Text style={ss.rowCat} numberOfLines={1}>{label}</Text>
             </View>
             <Text style={ss.rowAmt}>{budget != null ? `$${budget.amount.toFixed(2)}` : '—'}</Text>
             <Text style={ss.rowEdit}>Edit</Text>
@@ -225,7 +395,12 @@ export default function BudgetsScreen() {
           <Text style={ss.backChev}>‹</Text>
         </Pressable>
         <Text style={ss.topbarTitle}>Budgets</Text>
-        <Text style={ss.topbarSub}>{month}</Text>
+        <Text style={ss.topbarSub}>{formatMonthLabel(month)}</Text>
+      </View>
+
+      {/* Toast notification */}
+      <View style={ss.toastWrap}>
+        {toast.node}
       </View>
 
       <ScrollView
@@ -235,46 +410,54 @@ export default function BudgetsScreen() {
         keyboardDismissMode="interactive"
       >
         <View style={ss.card}>
-          <Text style={ss.fieldLabel}>Month key</Text>
-          <TextInput
-            style={ss.fieldInput}
-            value={monthDraft}
-            onChangeText={setMonthDraft}
-            placeholder="default or 2026-04"
-            placeholderTextColor="#888"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          {/* ── Month picker ── */}
+          <Text style={ss.fieldLabel}>Budget month</Text>
+          <MonthPickerInput value={monthDraft} onChange={setMonthDraft} />
           <Text style={ss.hint}>
-            Use "default" for a rolling template, or YYYY-MM for a specific month.
+            Tap to pick a month, or choose "Default" for a rolling template applied to any month.
           </Text>
-          <Pressable onPress={() => setMonth(monthDraft)}>
+          <Pressable onPress={applyMonth} disabled={!isMonthDirty}>
             {({ pressed }) => (
-              <View style={[ss.btn, ss.btnYellow, pressed && ss.btnPressed]} pointerEvents="none">
+              <View
+                style={[
+                  ss.btn, ss.btnYellow,
+                  !isMonthDirty && ss.btnDisabled,
+                  pressed && isMonthDirty && ss.btnPressed,
+                ]}
+                pointerEvents="none"
+              >
                 <Text style={ss.btnText}>Apply month</Text>
               </View>
             )}
           </Pressable>
 
+          {/* ── Monthly cap ── */}
           <Text style={[ss.fieldLabel, { marginTop: 16 }]}>Total monthly cap (optional)</Text>
           <TextInput
             style={ss.fieldInput}
             value={capInput}
             onChangeText={setCapInput}
-            placeholder="e.g. 3000"
+            placeholder="e.g. 3000  (clear to remove)"
             placeholderTextColor="#888"
             keyboardType="decimal-pad"
           />
-          <Pressable onPress={applyCap}>
+          <Pressable onPress={applyCap} disabled={!isCapDirty}>
             {({ pressed }) => (
-              <View style={[ss.btn, ss.btnNeutral, pressed && ss.btnPressed]} pointerEvents="none">
+              <View
+                style={[
+                  ss.btn, ss.btnNeutral,
+                  !isCapDirty && ss.btnDisabled,
+                  pressed && isCapDirty && ss.btnPressed,
+                ]}
+                pointerEvents="none"
+              >
                 <Text style={ss.btnText}>Save cap</Text>
               </View>
             )}
           </Pressable>
         </View>
 
-        <Text style={ss.sectionLabel}>Rows</Text>
+        <Text style={ss.sectionLabel}>Category budgets</Text>
         {categories.length === 0 ? (
           <Text style={ss.empty}>No categories yet — add some in Settings › Categories.</Text>
         ) : (
@@ -300,6 +483,7 @@ export default function BudgetsScreen() {
 
 const ss = StyleSheet.create({
   screen: { flex: 1, backgroundColor: CREAM },
+
   topbar: {
     backgroundColor: INK,
     paddingHorizontal: 14,
@@ -332,6 +516,147 @@ const ss = StyleSheet.create({
     flexShrink: 0,
     marginLeft: 'auto',
   },
+
+  // ── Toast ──────────────────────────────────────────────
+  toastWrap: {
+    alignItems: 'center',
+    paddingTop: 6,
+    paddingBottom: 2,
+    zIndex: 99,
+    // sits in normal flow right below the topbar
+  },
+  toast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: GREEN,
+    borderWidth: 2,
+    borderColor: INK,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    shadowColor: INK,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 6,
+  },
+  toastText: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // ── Month picker field ──────────────────────────────────
+  monthField: {
+    borderWidth: 2,
+    borderColor: INK,
+    backgroundColor: CREAM,
+    paddingHorizontal: 10,
+    paddingVertical: 11,
+    marginBottom: 8,
+  },
+  monthFieldInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  monthFieldText: {
+    fontFamily: MONO,
+    fontSize: 15,
+    fontWeight: '800',
+    color: INK,
+    letterSpacing: 0.4,
+  },
+
+  // ── Month picker modal ──────────────────────────────────
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  sheet: {
+    backgroundColor: CREAM,
+    borderTopWidth: 3,
+    borderTopColor: INK,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: INK,
+  },
+  sheetTitle: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  headerBtn: {
+    fontFamily: MONO,
+    fontSize: 14,
+    fontWeight: '700',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  defaultBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 16,
+    borderWidth: 3,
+    borderColor: INK,
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    backgroundColor: YELLOW,
+    shadowColor: INK,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 4,
+  },
+  defaultBtnPressed: {
+    transform: [{ translateX: 4 }, { translateY: 4 }],
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  defaultBtnTitle: {
+    fontFamily: MONO,
+    fontSize: 16,
+    fontWeight: '800',
+    color: INK,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  defaultBtnSub: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#444444',
+    marginTop: 4,
+  },
+  pickerDivider: {
+    height: 0,
+  },
+  pickerWrap: {
+    alignItems: 'center',
+    paddingBottom: 12,
+  },
+  picker: {
+    backgroundColor: CREAM,
+    alignSelf: 'center',
+  },
+
+  // ── Form ──────────────────────────────────────────────
   scroll: { padding: 12 },
   card: {
     borderWidth: 3,
@@ -416,7 +741,7 @@ const ss = StyleSheet.create({
   btnYellow: { backgroundColor: YELLOW },
   btnRed: { backgroundColor: RED },
   btnNeutral: { backgroundColor: CREAM },
-  btnDisabled: { opacity: 0.4 },
+  btnDisabled: { opacity: 0.35 },
   btnPressed: { transform: [{ translateX: 3 }, { translateY: 3 }], shadowOpacity: 0, elevation: 0 },
   btnText: {
     fontFamily: MONO,

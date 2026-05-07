@@ -10,13 +10,12 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Ionicons } from '@expo/vector-icons'
 
 import { DateInput } from '@/src/components/DateInput'
 import {
-  BrutalBackRow,
   BrutalButton,
   BrutalCard,
-  BrutalScreen,
   BrutalTextField,
 } from '@/src/components/Brutalist'
 import { CalculatorAmountInput } from '@/src/components/CalculatorAmountInput'
@@ -49,6 +48,7 @@ export default function TransactionNewScreen() {
   const [amountAbs, setAmountAbs] = useState('')
   const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
   const [description, setDescription] = useState('')
+  const [notes, setNotes] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [tripId, setTripId] = useState<number | null>(null)
   const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
@@ -90,6 +90,7 @@ export default function TransactionNewScreen() {
         my_share: null,
         amount: a,
         description: description.trim(),
+        notes: notes.trim() || null,
         category,
         detail_category: null,
         pending: 0,
@@ -117,7 +118,23 @@ export default function TransactionNewScreen() {
   }
 
   return (
-    <BrutalScreen title="New transaction" subtitle="Saved locally">
+    <View style={styles.screen}>
+      <View style={[styles.statusBarFill, { height: insets.top }]} />
+      {/* Top bar — matches app header style */}
+      <View style={[styles.topbar, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          {({ pressed }) => (
+            <View style={[styles.backBtnInner, pressed && { opacity: 0.7 }]} pointerEvents="none">
+              <Ionicons name="arrow-back" size={20} color="#FAFAF5" />
+            </View>
+          )}
+        </Pressable>
+        <View style={styles.topbarMid}>
+          <Text style={styles.topbarTitle}>New Transaction</Text>
+          <Text style={styles.topbarSub}>Saved locally</Text>
+        </View>
+      </View>
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -127,7 +144,6 @@ export default function TransactionNewScreen() {
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
         >
-          <BrutalBackRow onBack={() => router.back()} />
           {accounts.length === 0 ? (
             <Text style={styles.warn}>
               Add a manual account in Settings first.
@@ -177,6 +193,16 @@ export default function TransactionNewScreen() {
               label="Description"
               value={description}
               onChangeText={setDescription}
+            />
+            <BrutalTextField
+              label="Notes (optional)"
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Any extra detail…"
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              style={{ minHeight: 72, paddingTop: 8 }}
             />
             <Text style={styles.blockLabel}>Category (optional)</Text>
             <View style={styles.chips}>
@@ -255,12 +281,52 @@ export default function TransactionNewScreen() {
           </BrutalCard>
         </ScrollView>
       </KeyboardAvoidingView>
-    </BrutalScreen>
+    </View>
   )
 }
 
+const NEO_MONO = Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' })
+
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#FAFAF5' },
+  statusBarFill: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: '#111111' },
   flex: { flex: 1 },
+
+  // ── Topbar (matches app header style) ─────────────────
+  topbar: {
+    backgroundColor: '#111111',
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backBtn: { flexShrink: 0 },
+  backBtnInner: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#333333',
+  },
+  topbarMid: { flex: 1, minWidth: 0 },
+  topbarTitle: {
+    fontFamily: NEO_MONO,
+    fontSize: 18,
+    fontWeight: Platform.OS === 'ios' ? '800' : '700',
+    color: '#FAFAF5',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  topbarSub: {
+    fontFamily: NEO_MONO,
+    fontSize: 11,
+    color: '#aaaaaa',
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
   amountWrap: { marginBottom: tokens.space[4] },
   amountInput: {
     borderWidth: tokens.border.w3,

@@ -9,6 +9,9 @@ export function InactivityWatcher() {
   const timeoutMs = useAuthStore((s) => s.inactivityTimeoutMs)
   const lockSession = useAuthStore((s) => s.lockSession)
 
+  // Lock only when the inactivity timer expires while the app is in the foreground.
+  // Background/inactive transitions no longer trigger a lock — the privacy overlay
+  // covers sensitive content in the app switcher instead.
   useEffect(() => {
     if (!hydrated) return
     const id = setInterval(() => {

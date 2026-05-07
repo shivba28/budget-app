@@ -4,12 +4,15 @@ import * as budgetsQ from './queries/budgets'
 import * as categoriesQ from './queries/categories'
 import * as meta from './queries/appMeta'
 import * as transactionsQ from './queries/transactions'
-import * as tripsQ from './queries/trips'
 
 const DEFAULT_ACCOUNT_ID = 'acct_manual_default'
 
 export function runSeedIfNeeded(): void {
-  if (meta.getMeta(META_PHASE2_SEEDED) === '1') return
+  // NOTE: We intentionally do NOT gate on META_PHASE2_SEEDED here.
+  // On iOS, Keychain entries survive app deletion/reinstallation, so the flag
+  // would be '1' even on a completely fresh DB — causing an empty app.
+  // Instead, each section below checks whether data already exists before
+  // inserting, which is safe to run on every cold startup.
 
   const existingCats = categoriesQ.listCategories()
   if (existingCats.length === 0) {
@@ -40,21 +43,7 @@ export function runSeedIfNeeded(): void {
     })
   }
 
-  const tripRows = tripsQ.listTrips()
-  let demoTripId: number | null = null
-  if (tripRows.length === 0) {
-    demoTripId = tripsQ.insertTrip({
-      name: 'Weekend away',
-      start_date: null,
-      end_date: null,
-      budget_limit: 400,
-      color: '#F5E642',
-      created_at: new Date().toISOString(),
-    })
-  }
-
-  const txs = transactionsQ.listTransactions()
-  if (txs.length === 0) {
+  if (transactionsQ.countTransactions() === 0) {
     const accountId =
       accountsQ.listManualAccounts()[0]?.id ?? DEFAULT_ACCOUNT_ID
     transactionsQ.insertTransaction({
@@ -62,7 +51,7 @@ export function runSeedIfNeeded(): void {
       account_id: accountId,
       date: new Date().toISOString().slice(0, 10),
       effective_date: null,
-      trip_id: demoTripId,
+      trip_id: null,
       my_share: null,
       amount: -42.5,
       description: 'Coffee & pastries',

@@ -80,8 +80,8 @@ export function TransactionSwipeRow({
     <ReanimatedSwipeable
       friction={2}
       enableTrackpadTwoFingerGesture
-      leftThreshold={40}
-      renderLeftActions={renderActions}
+      rightThreshold={40}
+      renderRightActions={renderActions}
     >
       <View style={styles.rowWrap}>
         {children}

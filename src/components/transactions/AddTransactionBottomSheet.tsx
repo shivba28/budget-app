@@ -58,6 +58,7 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
     const [tripId, setTripId] = useState<number | null>(null)
     const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
     const [untilDate, setUntilDate] = useState('')
+    const [notes, setNotes] = useState('')
 
     useEffect(() => {
       loadAccounts()
@@ -78,6 +79,7 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
       setTripId(null)
       setRecurrence('none')
       setUntilDate('')
+      setNotes('')
     }
 
     const canSave = useMemo(() => {
@@ -127,6 +129,7 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
           source: 'manual',
           account_label: null,
           synced_at: null,
+          notes: notes.trim() || null,
         })
       } else {
         createManualRecurringTransactions({
@@ -223,6 +226,17 @@ export const AddTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
             onChangeText={setDescription}
             placeholder="Merchant name or note…"
             placeholderTextColor="#999999"
+          />
+
+          <Text style={styles.fieldLabel}>Notes (optional)</Text>
+          <BottomSheetTextInput
+            style={[styles.fieldInput, styles.notesInput]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Dinner with Mom, subscription ref…"
+            placeholderTextColor="#999999"
+            multiline
+            numberOfLines={2}
           />
 
           <Text style={styles.fieldLabel}>Category (optional)</Text>
@@ -391,6 +405,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: INK,
     marginBottom: 6,
+  },
+  notesInput: {
+    minHeight: 56,
+    textAlignVertical: 'top',
   },
   chips: {
     flexDirection: 'row',

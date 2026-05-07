@@ -2,22 +2,21 @@ import { sqlite } from '../db'
 import { META } from './constants'
 
 export function getMetaSync(key: string): string | null {
-  const row = sqlite.getFirstSync<{ value: string }>(
-    'SELECT value FROM app_meta WHERE key = ?',
-    [key],
-  )
+  // op-sqlite: execute() returns { rows: { _array: T[] } }
+  const result = sqlite.execute('SELECT value FROM app_meta WHERE key = ?', [key])
+  const row = result.rows?._array?.[0] as { value: string } | undefined
   return row?.value ?? null
 }
 
 export function setMetaSync(key: string, value: string): void {
-  sqlite.runSync(
+  sqlite.execute(
     'INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     [key, value],
   )
 }
 
 export function removeMetaSync(key: string): void {
-  sqlite.runSync('DELETE FROM app_meta WHERE key = ?', [key])
+  sqlite.execute('DELETE FROM app_meta WHERE key = ?', [key])
 }
 
 export function readLastUnlockIso(): string | null {

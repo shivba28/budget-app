@@ -56,6 +56,11 @@ export function clearTransactionsCategoryMatchingLabel(label: string): void {
     .run()
 }
 
+export function countTransactions(): number {
+  const row = db.select({ c: count() }).from(transactions).get()
+  return Number(row?.c ?? 0)
+}
+
 export function countForAccount(accountId: string): number {
   const row = db
     .select({ c: count() })

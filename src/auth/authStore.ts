@@ -103,13 +103,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Wipe all SQLite tables (import lazily to avoid circular deps)
     const { sqlite } = await import('../db/client')
-    sqlite.runSync('DELETE FROM transactions')
-    sqlite.runSync('DELETE FROM accounts')
-    sqlite.runSync('DELETE FROM teller_enrollments')
-    sqlite.runSync('DELETE FROM categories')
-    sqlite.runSync('DELETE FROM trips')
-    sqlite.runSync('DELETE FROM budgets')
-    sqlite.runSync('DELETE FROM app_meta')
+    sqlite.execute('DELETE FROM transactions')
+    sqlite.execute('DELETE FROM accounts')
+    sqlite.execute('DELETE FROM teller_enrollments')
+    sqlite.execute('DELETE FROM categories')
+    sqlite.execute('DELETE FROM trips')
+    sqlite.execute('DELETE FROM budgets')
+    sqlite.execute('DELETE FROM app_meta')
 
     set({
       hydrated: true,

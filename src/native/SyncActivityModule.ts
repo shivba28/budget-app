@@ -54,7 +54,7 @@ const SyncActivityModule = {
 
     activityId = LiveActivity.startActivity(state, config)
     const started = activityId != null
-    console.warn(`[SyncActivity] startActivity → ${started ? `id=${activityId}` : 'NOT started (device may not support Live Activities)'}`)
+    console.log(`[SyncActivity] startActivity → ${started ? `id=${activityId}` : 'NOT started (device may not support Live Activities)'}`)
     return started
   },
 

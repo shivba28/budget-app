@@ -7,9 +7,9 @@ export type TxListRow =
   | { type: 'transaction'; id: string; tx: TransactionRow }
 
 function groupTransactionsByMonth(transactions: TransactionRow[]) {
-  const sorted = [...transactions].sort((a, b) =>
-    sortDate(b).localeCompare(sortDate(a)),
-  )
+  const sorted = [...transactions]
+    .filter((tx) => !!tx.date)  // guard against rows with null dates
+    .sort((a, b) => sortDate(b).localeCompare(sortDate(a)))
 
   const byMonth = new Map<string, TransactionRow[]>()
   for (const tx of sorted) {

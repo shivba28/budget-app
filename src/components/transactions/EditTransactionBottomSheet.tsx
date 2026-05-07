@@ -78,6 +78,7 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
     const [tripId, setTripId] = useState<number | null>(null)
     const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
     const [untilDate, setUntilDate] = useState('')
+    const [notes, setNotes] = useState('')
     const [loadedRuleForTx, setLoadedRuleForTx] = useState<string | null>(null)
     const [loadedUntilDate, setLoadedUntilDate] = useState<string | null>(null)
 
@@ -96,6 +97,7 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
       setDescription(tx.description)
       setCategory(tx.category ?? null)
       setTripId(tx.trip_id ?? null)
+      setNotes((tx as any).notes as string ?? '')
       const rid = (tx as any).recurring_rule_id as string | null | undefined
       if (rid) {
         const rule = recurringQ.getRecurringRule(rid)
@@ -171,6 +173,7 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
         category,
         trip_id: tripId,
         source: 'manual',
+        notes: notes.trim() || null,
       })
 
       if (recurrence !== 'none') {
@@ -299,6 +302,18 @@ export const EditTransactionBottomSheet = forwardRef<BottomSheetModal, Props>(
               onChangeText={setDescription}
               placeholder="Merchant name or note…"
               placeholderTextColor="#999999"
+            />
+
+            {/* Notes */}
+            <Text style={styles.fieldLabel}>Notes (optional)</Text>
+            <BottomSheetTextInput
+              style={[styles.fieldInput, styles.notesInput]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Dinner with Mom, subscription ref…"
+              placeholderTextColor="#999999"
+              multiline
+              numberOfLines={2}
             />
 
             {/* Category */}
@@ -492,6 +507,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: INK,
     marginBottom: 6,
+  },
+  notesInput: {
+    minHeight: 56,
+    textAlignVertical: 'top',
   },
   chips: {
     flexDirection: 'row',

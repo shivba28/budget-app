@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native'
 import Svg, {
   Circle,
+  Ellipse,
   Line,
   Path,
   Rect,
@@ -158,8 +159,74 @@ function NoBudgetsIllustration() {
   )
 }
 
+// ─── No Events ────────────────────────────────────────────────────────────────
+function NoEventsIllustration() {
+  return (
+    <Svg width={140} height={120} viewBox="0 0 140 120">
+      {/* Calendar body */}
+      <Rect x={22} y={28} width={96} height={82} rx={3} fill={CREAM} {...SK} />
+      {/* Calendar header bar */}
+      <Rect x={22} y={28} width={96} height={22} rx={3} fill={YELLOW} {...SK} />
+      {/* Ring hooks */}
+      <Rect x={44} y={20} width={8} height={16} rx={4} fill={MUTED} {...SK_THIN} />
+      <Rect x={88} y={20} width={8} height={16} rx={4} fill={MUTED} {...SK_THIN} />
+      {/* Day grid lines */}
+      <Line x1={22} y1={68} x2={118} y2={68} {...SK_THIN} />
+      <Line x1={22} y1={88} x2={118} y2={88} {...SK_THIN} />
+      <Line x1={54} y1={50} x2={54} y2={110} {...SK_THIN} />
+      <Line x1={86} y1={50} x2={86} y2={110} {...SK_THIN} />
+      {/* Star / event marker */}
+      <Path d="M70 55 L73 63 L82 63 L75 68 L78 76 L70 71 L62 76 L65 68 L58 63 L67 63 Z"
+        fill={INK} stroke={INK} strokeWidth={1} strokeLinejoin="round" />
+      {/* Small dots in other cells */}
+      <Circle cx={40} cy={78} r={4} fill={MUTED} {...SK_THIN} />
+      <Circle cx={102} cy={78} r={4} fill={MUTED} {...SK_THIN} />
+      <Circle cx={40} cy={99} r={4} fill={YELLOW} {...SK_THIN} />
+      {/* Sparkle */}
+      <Path d="M112 22 L114 26 L118 28 L114 30 L112 34 L110 30 L106 28 L110 26 Z"
+        fill={YELLOW} {...SK_THIN} />
+    </Svg>
+  )
+}
+
+// ─── No Savings Goals ─────────────────────────────────────────────────────────
+function NoSavingsGoalsIllustration() {
+  return (
+    <Svg width={140} height={120} viewBox="0 0 140 120">
+      {/* Jar body */}
+      <Rect x={36} y={46} width={68} height={60} rx={6} fill={CREAM} {...SK} />
+      {/* Jar neck */}
+      <Rect x={44} y={32} width={52} height={18} rx={3} fill={MUTED} {...SK} />
+      {/* Lid */}
+      <Rect x={38} y={22} width={64} height={14} rx={4} fill={INK} />
+      {/* Coin slot in lid */}
+      <Rect x={58} y={20} width={24} height={6} rx={3} fill={CREAM} />
+      {/* Coin in air — circle with $ */}
+      <Circle cx={70} cy={11} r={10} fill={YELLOW} {...SK} />
+      <SvgText
+        x={70} y={14}
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight="900"
+        fill={INK}
+        fontFamily={MONO}
+      >$</SvgText>
+      {/* Stacked coins inside jar — uniform size */}
+      <Ellipse cx={70} cy={88} rx={10} ry={4} fill={YELLOW} {...SK_THIN} />
+      <Ellipse cx={70} cy={80} rx={10} ry={4} fill={YELLOW} {...SK_THIN} />
+      <Ellipse cx={70} cy={72} rx={10} ry={4} fill={YELLOW} {...SK_THIN} />
+      <Ellipse cx={70} cy={64} rx={10} ry={4} fill={YELLOW} {...SK_THIN} />
+      {/* Jar shine */}
+      <Line x1={44} y1={52} x2={44} y2={96} stroke={CREAM} strokeWidth={4} strokeLinecap="round" strokeOpacity={0.55} />
+      {/* Progress bar below */}
+      <Rect x={22} y={114} width={96} height={6} rx={3} fill={MUTED} {...SK_THIN} />
+      <Rect x={22} y={114} width={44} height={6} rx={3} fill={YELLOW} />
+    </Svg>
+  )
+}
+
 // ─── Illustration map ─────────────────────────────────────────────────────────
-type IllustrationVariant = 'transactions' | 'trips' | 'accounts' | 'insights' | 'budgets'
+type IllustrationVariant = 'transactions' | 'trips' | 'accounts' | 'insights' | 'budgets' | 'events' | 'savings-goals'
 
 const ILLUSTRATIONS: Record<IllustrationVariant, () => ReactElement> = {
   transactions: NoTransactionsIllustration,
@@ -167,6 +234,8 @@ const ILLUSTRATIONS: Record<IllustrationVariant, () => ReactElement> = {
   accounts: NoAccountsIllustration,
   insights: NoInsightsIllustration,
   budgets: NoBudgetsIllustration,
+  events: NoEventsIllustration,
+  'savings-goals': NoSavingsGoalsIllustration,
 }
 
 // ─── EmptyState component ─────────────────────────────────────────────────────

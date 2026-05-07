@@ -33,7 +33,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-dev-client"
+      "expo-dev-client",
+      "./plugins/withSqlCipher"
     ],
     "extra": {
       "router": {},

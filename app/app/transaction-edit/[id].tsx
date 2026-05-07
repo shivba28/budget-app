@@ -72,6 +72,7 @@ export default function TransactionEditScreen() {
   const [amountAbs, setAmountAbs] = useState('')
   const [amountSign, setAmountSign] = useState<'out' | 'in'>('out')
   const [description, setDescription] = useState('')
+  const [notes, setNotes] = useState('')
   const [category, setCategory] = useState<string | null>(null)
   const [tripId, setTripId] = useState<number | null>(null)
   const [recurrence, setRecurrence] = useState<ManualRecurrenceCadence | 'none'>('none')
@@ -93,6 +94,7 @@ export default function TransactionEditScreen() {
     setAmountAbs(String(Math.abs(tx.amount)))
     setAmountSign(tx.amount < 0 ? 'out' : 'in')
     setDescription(tx.description)
+    setNotes(tx.notes ?? '')
     setCategory(tx.category ?? null)
     setTripId(tx.trip_id ?? null)
     const rid = (tx as any).recurring_rule_id as string | null | undefined
@@ -139,6 +141,7 @@ export default function TransactionEditScreen() {
       date,
       amount: signedAmt,
       description: description.trim(),
+      notes: notes.trim() || null,
       category,
       trip_id: tripId,
       source: 'manual',
@@ -243,6 +246,9 @@ export default function TransactionEditScreen() {
                 ? <Text style={styles.pendingBadge}>{' PENDING'}</Text>
                 : null}
             </Text>
+            {tx.notes ? (
+              <Text style={styles.txNotes} numberOfLines={2}>{tx.notes}</Text>
+            ) : null}
           </View>
 
           {/* Form card */}
@@ -291,6 +297,18 @@ export default function TransactionEditScreen() {
               onChangeText={setDescription}
               placeholderTextColor="#999"
               placeholder="Merchant name or note…"
+            />
+
+            <Text style={styles.fieldLabel}>Notes (optional)</Text>
+            <TextInput
+              style={[styles.fieldInput, styles.notesInput]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholderTextColor="#999"
+              placeholder="Any extra detail…"
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
             />
 
             <Text style={styles.sectionLabel}>Category (optional)</Text>
@@ -492,6 +510,13 @@ const styles = StyleSheet.create({
     backgroundColor: YELLOW,
     color: INK,
   },
+  txNotes: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#555555',
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
   card: {
     borderWidth: 3,
     borderColor: INK,
@@ -532,6 +557,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: INK,
     marginBottom: 10,
+  },
+  notesInput: {
+    minHeight: 72,
+    paddingTop: 7,
   },
   chips: {
     flexDirection: 'row',
